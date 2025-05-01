@@ -3,7 +3,7 @@ processing workflows.
 """
 
 from CHAP.saxswaxs.processor import (
-    PyfaiIntegrationProcessor,
+    PyfaiIntegrationZarrProcessor,
 )
 # from CHAP.saxswaxs.reader import ()
 from CHAP.saxswaxs.writer import (

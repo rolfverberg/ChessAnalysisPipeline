@@ -2971,6 +2971,8 @@ class UnstructuredToStructuredProcessor(Processor):
         if unstructured_dim is None:
             raise ValueError(f'Unable to determine the unstructered axes')
         axes = unstructured_axes
+#RV temp fix for saxswaxs comparison with old code
+#        axes.reverse()
 
         # Identify unique coordinate points for each axis
         unique_coords = {}
@@ -3039,7 +3041,6 @@ class UnstructuredToStructuredProcessor(Processor):
         if len(data_point_axes) == 1:
             axes = nxdata_structured.attrs['axes']
             if isinstance(axes, str):
-                print(f'before axes {type(axes)}: {axes}')
                 axes = [axes]
             nxdata_structured.attrs['axes'] = axes + data_point_axes
         for a in data_point_axes:

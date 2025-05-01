@@ -12,22 +12,17 @@ class ZarrSetupWriter(Writer):
         # Using config & experiment_shape, setup tree dict to pass to
         # common.ZarrSetupWriter
         # call common.ZarrSetupWriter
-        try:
-            config = self.get_config(
-                data=data,
-                schema=f'saxswaxs.models.PyfaiIntegrationProcessorConfig')
-        except:
-            self.logger.info(
-                f'No valid PyfaiIntegrationProcessorConfig in input '
-                'pipeline data, using config parameter instead')
-            try:
-                from CHAP.saxswaxs.models import (
-                    PyfaiIntegrationProcessorConfig)
-                config = PyfaiIntegrationProcessorConfig(
-                    **config, inputdir=inputdir)
-            except Exception as exc:
-                raise RuntimeError from exc
+
+        # Load the validated integration configuration
+        config = self.get_config(
+#            data=data, config=config, inputdir=inputdir,
+            data=data,
+            schema='saxswaxs.models.PyfaiIntegrationZarrConfig')
+
+        # Create the Zarr tree
         tree = config.zarr_tree(dataset_shape, dataset_chunks)
+
+        # Write the Zarr tree to file
         return self.zarr_setup_writer(tree, filename)
 
     def zarr_setup_writer(self, tree, filename):
@@ -57,8 +52,10 @@ class ZarrSetupWriter(Writer):
                         # It's a group
                         group = zarr_parent.create_group(name)
                         create_group_or_dataset(child, group, indent=indent+2)
+
         root = zarr.open(filename, mode='w')
         create_group_or_dataset(tree['root'], root)
+
         return root
 
 
@@ -112,6 +109,10 @@ class ZarrResultsWriter(Writer):
         dataset = zarrfile[path]
 
         # Check that the slice shape matches the data shape
+#        print(f'\n\npath: {path}')
+#        print(f'\n\ndataset: {dataset}')
+#        print(f'\n\ndataset[idx].shape: {dataset[idx].shape}')
+#        print(f'\ndata.shape: {data.shape}')
         if dataset[idx].shape != data.shape:
             raise ValueError(
                 f'Data shape {data.shape} does not match the target slice '
