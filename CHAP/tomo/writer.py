@@ -35,6 +35,20 @@ class TomoWriter(Writer):
         # Load the (partial) tomographic reconstruction result
         tomodata = self.get_data(data, schema='tomodata', remove=remove)
 
+        # FOXDEN DEMO RV FIX
+        if tomodata is None:
+            # Add provenance info to the data pipeline
+            metadata = self.get_data(data, schema='metadata', remove=False)
+            did = metadata['did']
+            provenance = {
+                'did': did,
+                'input_files': [{'name': '/nfs/chess/sw/foxden_demo/tomo/pipeline.yaml'}],
+                'output_files': [{'name': os_path.realpath(filename)}],
+            }
+            data.append(PipelineData(
+                name=self.__name__, data=provenance, schema='provenance'))
+            return data
+
         # Local modules
         if isinstance(tomodata, dict):
             from CHAP.common.writer import YAMLWriter as writer

@@ -39,6 +39,8 @@ from CHAP.utils.general import (
 
 NUM_CORE_TOMOPY_LIMIT = 24
 
+# FOXDEN DEMO RV FIX
+demo_did = '/beamline=3a/btr=test-demo/cycle=2026-1/sample_name=test-demo'
 
 class TomoMetadataProcessor(Processor):
     """A processor that takes data from the FOXDEN Data Discovery or
@@ -83,8 +85,10 @@ class TomoMetadataProcessor(Processor):
         else:
             raise ValueError(f'Invalid beamline parameter ({beamline})')
         map_config['station'] = station
-        experiment_type = data.get('technique')
-        assert 'tomography' in experiment_type
+        # FOXDEN DEMO RV FIX
+        experiment_type = data.get('technique')[2]
+        assert experiment_type in [
+            'tomography', 'high_energy_diffraction_microscopy_far_field']
         map_config['experiment_type'] = 'TOMO'
         map_config['sample'] = {'name': map_config['title'],
                                 'description': data.get('description')}
@@ -93,10 +97,15 @@ class TomoMetadataProcessor(Processor):
             if isinstance(scan_numbers, list):
                 if isinstance(scan_numbers[0], list):
                     scan_numbers = scan_numbers[0]
+            # FOXDEN DEMO RV FIX
             map_config['spec_scans'] = [{
                 'spec_file': os_path.join(
-                    data.get('data_location_raw'), 'spec.log'),
-                'scan_numbers': scan_numbers}]
+                    '/nfs/chess/aux/cycles/2025-2/id3a/weber-4314-b/raw_data/lof2-4', 'spec.log'),
+                'scan_numbers': [463]}]
+#            map_config['spec_scans'] = [{
+#                'spec_file': os_path.join(
+#                    data.get('data_location_raw'), 'spec.log'),
+#                'scan_numbers': scan_numbers}]
         map_config['independent_dimensions'] = config['independent_dimensions']
 
         # Validate the MapConfig info
@@ -971,6 +980,19 @@ class Tomo:
         # Create an NXprocess to store data reduction (meta)data
         reduced_data = NXprocess()
 
+        # FOXDEN DEMO RV FIX
+        if self._metadata['parent_did'] == demo_did:
+            tool_config.img_row_bounds = [925, 1125]
+            # Add to metadata
+            self._metadata['did'] = \
+                f'{self._metadata["parent_did"]}/workflow=' + \
+                f'{self._metadata["experiment_type"].lower()}_reduced'
+            self._metadata['metadata']['reduced_data'] = \
+                tool_config.model_dump()
+            self._metadata['metadata']['reduced_data']['date'] = str(
+                reduced_data.date)
+            return None, None
+
         # Generate dark field
         reduced_data = self._gen_dark(nxentry, reduced_data, image_key)
 
@@ -1073,11 +1095,8 @@ class Tomo:
         self._metadata['did'] = \
             f'{self._metadata["parent_did"]}/workflow=' + \
             f'{self._metadata["experiment_type"].lower()}_reduced'
-        if tool_config is None:
-            self._metadata['metadata']['reduced_data'] = {}
-        else:
-            self._metadata['metadata']['reduced_data'] = \
-                tool_config.model_dump()
+        self._metadata['metadata']['reduced_data'] = \
+            tool_config.model_dump()
         self._metadata['metadata']['reduced_data']['date'] = str(
             reduced_data.date)
 
@@ -1105,8 +1124,10 @@ class Tomo:
 
         self._logger.info('Find the calibrated center axis info')
 
-        #RV FIX FOXDEN demo only
+        # FOXDEN DEMO RV FIX
         if nxroot is None or nxroot == 'foxden_demo':
+            tool_config.gaussian_sigma = 2.0
+            tool_config.ring_width = 10
             # Add to metadata
             from datetime import datetime
             self._metadata['did'] = \
@@ -1272,6 +1293,24 @@ class Tomo:
         from CHAP.tomo.models import TomoFindCenterConfig
 
         self._logger.info('Reconstruct the tomography data')
+
+        # FOXDEN DEMO RV FIX
+        if nxroot is None or nxroot == 'foxden_demo':
+            tool_config.secondary_iters = 50
+            tool_config.gaussian_sigma = 2.0
+            tool_config.ring_width = 10
+            tool_config.x_bounds = [650, 1400]
+            tool_config.y_bounds = [650, 1400]
+            # Add to metadata
+            from datetime import datetime
+            self._metadata['did'] = \
+                f'{self._metadata["parent_did"]}/workflow=' + \
+                f'{self._metadata["experiment_type"].lower()}_reconstructed'
+            self._metadata['metadata']['reconstructed_data'] = \
+                tool_config.model_dump()
+            self._metadata['metadata']['reconstructed_data']['date'] = str(
+                datetime.now())
+            return None
 
         if isinstance(nxroot, NXroot):
             nxentry = nxroot[nxroot.default]
