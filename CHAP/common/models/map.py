@@ -32,6 +32,28 @@ from typing_extensions import Annotated
 from CHAP.models import CHAPBaseModel
 
 
+class CHAPSlice(CHAPBaseModel):
+    """Class representing a slice configuration for any particular
+    dimension of a data set.
+
+    :ivar start: Starting index for slicing, defaults to `0`.
+    :type start: int, optional
+    :ivar end: Ending index for slicing, defaults to `-1`.
+    :type end: int, optional
+    :ivar step: Slicing step, defaults to `1`.
+    :type step: int, optional
+    """
+    start: Optional[int] = 0
+    end: Optional[int] = None
+    step: Optional[conint(gt=0)] = 1
+
+    def tolist(self):
+        return [self.start, self.end, self.step]
+
+    def toslice(self):
+        return slice(self.start, self.end, self.step)
+
+
 class Detector(CHAPBaseModel):
     """Class representing a single detector.
 
@@ -87,38 +109,24 @@ class DetectorConfig(CHAPBaseModel):
 
     :ivar detectors: Detector list.
     :type detectors: list[Detector]
+    :ivar roi: Detector ROI.
+    :type roi: list[CHAPSlice, CHAPSlice], optional
     """
     detectors: conlist(item_type=Detector, min_length=1)
     roi: Optional[conlist(
-        min_length=2, max_length=2,
-        item_type=Union[
-            int,
-            Union[
-                None,
-                conlist(
-                    min_length=1, max_length=3, item_type=Union[None, int])]
-        ])] = None
+        item_type=CHAPSlice, min_length=2, max_length=2)] = None
 
     @field_validator('roi', mode='before')
     @classmethod
     def validate_roi(cls, roi):
         """Validate the detector ROI.
 
-        :ivar roi: Array index range of the selected detector slices
-            in both the row and column direction.
-        :type roi: [
-            Union[int, list[int]], Union[int, list[int]]], optional
-        :return: Validated ROI.
-        :rtype: list[list[int], list[int]]
+        :param roi: Detector ROI.
+        :type roi: list[CHAPSlice, CHAPSlice]
+        :return: The validated detector ROI
+        :rtype: list[CHAPSlice, CHAPSlice]
         """
-        def slices(index_range):
-            if index_range is None:
-                return index_range
-            if isinstance(index_range, int):
-                index_range = [index_range]
-            return [None if isinstance(i, str) and i.lower() == 'none' else i
-                    for i in index_range]
-        return [slices(roi[0]), slices(roi[1])]
+        return [CHAPSlice().model_dump() if v is None else v for v in roi]
 
 
 class Sample(CHAPBaseModel):
@@ -729,6 +737,7 @@ class IndependentDimension(PointByPointScanData):
         this axis, defaults to `1`.
     :type step: int, optional
     """
+    # FIX convert to using CHAPSlice
     start: Optional[conint(ge=0)] = 0
     end: Optional[int] = None
     step: Optional[conint(gt=0)] = 1

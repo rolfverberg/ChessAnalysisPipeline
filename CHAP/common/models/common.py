@@ -81,6 +81,7 @@ class ImageProcessorConfig(CHAPBaseModel):
     """
     animation: Optional[bool] = False
     axis: Optional[Union[conint(ge=0), constr(min_length=1)]] = 0
+    # FIX convert to using CHAPSlice
     coord_range: Optional[Union[
         confloat(allow_inf_nan=False),
         conlist(min_length=2, max_length=3,
