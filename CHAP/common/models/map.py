@@ -89,6 +89,36 @@ class DetectorConfig(CHAPBaseModel):
     :type detectors: list[Detector]
     """
     detectors: conlist(item_type=Detector, min_length=1)
+    roi: Optional[conlist(
+        min_length=2, max_length=2,
+        item_type=Union[
+            int,
+            Union[
+                None,
+                conlist(
+                    min_length=1, max_length=3, item_type=Union[None, int])]
+        ])] = None
+
+    @field_validator('roi', mode='before')
+    @classmethod
+    def validate_roi(cls, roi):
+        """Validate the detector ROI.
+
+        :ivar roi: Array index range of the selected detector slices
+            in both the row and column direction.
+        :type roi: [
+            Union[int, list[int]], Union[int, list[int]]], optional
+        :return: Validated ROI.
+        :rtype: list[list[int], list[int]]
+        """
+        def slices(index_range):
+            if index_range is None:
+                return index_range
+            if isinstance(index_range, int):
+                index_range = [index_range]
+            return [None if isinstance(i, str) and i.lower() == 'none' else i
+                    for i in index_range]
+        return [slices(roi[0]), slices(roi[1])]
 
 
 class Sample(CHAPBaseModel):

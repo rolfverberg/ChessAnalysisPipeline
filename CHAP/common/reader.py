@@ -584,7 +584,9 @@ class SpecReader(Reader):
                     for detector in self.detector_config.detectors:
                         nxdata[detector.get_id()] = NXfield(
                            value=scanparser.get_detector_data(
-                               detector.get_id(), dtype=dtype))
+                               detector.get_id(),
+                               detector_roi=self.detector_config.roi,
+                               dtype=dtype))
 
         if (self.config.experiment_type == 'EDD' and
                 self.detector_config is None):

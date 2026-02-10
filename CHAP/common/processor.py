@@ -823,10 +823,10 @@ class MapProcessor(Processor):
             logger.debug(f'Number of processors: {num_proc}')
         return num_proc
 
-    def process(
-            self, data, placeholder_data=False, comm=None):
+    def process(self, data, placeholder_data=False, comm=None):
 
-        return self._process(data, placeholder_data, comm)
+        return self._process(
+            data, placeholder_data=placeholder_data, comm=comm)
 
 #    @profile
     def _process(self, data, placeholder_data=False, comm=None):
@@ -1357,7 +1357,9 @@ class MapProcessor(Processor):
         if self.config.experiment_type == 'TOMO':
             dtype = np.float32
             ddata = scanparser.get_detector_data(
-                self.detector_config.detectors[0].get_id(), dtype=dtype)
+                self.detector_config.detectors[0].get_id(),
+                detector_roi=self.detector_config.roi,
+                dtype=dtype)
         else:
             dtype = None
             ddata = scanparser.get_detector_data(
