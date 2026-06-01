@@ -785,7 +785,7 @@ class SliceNXdataReader(Reader):
         from nexusformat.nexus import NXentry, NXfield
 
         # Local modules
-        from CHAP.common import NexusReader
+        from CHAP.common.reader import NexusReader
         from CHAP.utils.general import nxcopy
 
         # Read NXroot
