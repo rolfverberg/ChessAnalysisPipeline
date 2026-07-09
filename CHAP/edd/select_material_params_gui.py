@@ -121,15 +121,15 @@ class MaterialParamSelector:
         self._plot_reference_data()  # Re-plot reference data
 
         # Plot each material's hkl peak locations
-        for i, material in enumerate(self.materials):
-            hkls, ds = get_unique_hkls_ds([material])
+        for i, m in enumerate(self.materials):
+            hkls, ds, _ = get_unique_hkls_ds([m])
             E0s = get_peak_locations(ds, self.tth)
             for hkl, E0 in zip(hkls, E0s):
                 if E0 < min(self.ref_data_x) or E0 > max(self.ref_data_x):
                     continue
                 line = self.ax.axvline(
                     E0, c=f'C{i+1}', ls='--', lw=1,
-                    label=material.material_name)
+                    label=m.material_name)
                 self.ax.text(E0, 1, str(hkl)[1:-1], c=f'C{i+1}',
                              ha='right', va='top', rotation=90,
                              transform=self.ax.get_xaxis_transform())

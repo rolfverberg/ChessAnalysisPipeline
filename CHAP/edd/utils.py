@@ -84,8 +84,9 @@ def get_unique_hkls_ds(materials, tth_max=None, tth_tol=None, round_sig=8):
     :param round_sig: Number of significant figures in the unique
         lattice spacings, defaults to `8`.
     :type round_sig: int, optional
-    :return: Unique HKLs and lattice spacings.
-    :rtype: numpy.ndarray, numpy.ndarray
+    :return: Unique HKLs, lattice spacings, and the material list
+        in the same index order.
+    :rtype: numpy.ndarray, numpy.ndarray, list[str]
     """
     # Local modules
     from CHAP.edd.models import MaterialConfig
@@ -96,9 +97,9 @@ def get_unique_hkls_ds(materials, tth_max=None, tth_tol=None, round_sig=8):
             _materials[i] = m._material
     hkls = np.empty((0,3))
     ds = np.empty((0))
-    ds_index = np.empty((0))
-    for i, material in enumerate(_materials):
-        plane_data = material.planeData
+    material_names = []
+    for i, m in enumerate(_materials):
+        plane_data = m.planeData
         if tth_max is not None:
             plane_data.exclusions = None
             plane_data.tThMax = np.radians(tth_max)
@@ -107,7 +108,7 @@ def get_unique_hkls_ds(materials, tth_max=None, tth_tol=None, round_sig=8):
         hkls = np.vstack((hkls, plane_data.hkls.T))
         ds_i = plane_data.getPlaneSpacings()
         ds = np.hstack((ds, ds_i))
-        ds_index = np.hstack((ds_index, i*np.ones(len(ds_i))))
+        material_names.extend(len(ds_i)*[m.name])
     # Sort lattice spacings in reverse order (use -)
     ds_unique, ds_index_unique, _ = np.unique(
         -ds.round(round_sig), return_index=True, return_counts=True)
@@ -115,8 +116,9 @@ def get_unique_hkls_ds(materials, tth_max=None, tth_tol=None, round_sig=8):
     # Limit the list to unique lattice spacings
     hkls_unique = hkls[ds_index_unique,:].astype(int)
     ds_unique = ds[ds_index_unique]
+    material_names_unique = np.asarray(material_names)[ds_index_unique]
 
-    return hkls_unique, ds_unique
+    return hkls_unique, ds_unique, material_names_unique
 
 
 def select_tth_initial_guess(x, y, hkls, ds, tth_initial_guess=5.0,
@@ -478,8 +480,8 @@ def select_material_params(
         add_material(m)
 
     # Add materials to figure
-    for i, material in enumerate(materials):
-        hkls, ds = get_unique_hkls_ds([material])
+    for i, m in enumerate(materials):
+        hkls, ds, _ = get_unique_hkls_ds([m])
         E0s = get_peak_locations(ds, tth)
         for hkl, E0 in zip(hkls, E0s):
             if x[0] <= E0 <= x[-1]:
@@ -658,10 +660,10 @@ def select_mask_and_hkls(x, y, hkls, ds, tth, preselected_bin_ranges=None,
     :type y: numpy.ndarray
     :param hkls: Avaliable Unique HKL values to fit peaks for in the
         calibration routine.
-    :type hkls: list[list[int]]
+    :type hkls: numpy.ndarray or list[list[int]]
     :param ds: Lattice spacings associated with the unique HKL indices
         in angstrom.
-    :type ds: list[float]
+    :type ds: numpy.ndarray or list[float]
     :param tth: (calibrated) 2&theta angle.
     :type tth: float
     :param preselected_bin_ranges: Preselected MCA channel index ranges
