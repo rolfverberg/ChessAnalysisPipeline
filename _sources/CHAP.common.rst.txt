@@ -1,0 +1,66 @@
+CHAP.common package
+===================
+
+.. automodule:: CHAP.common
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Subpackages
+-----------
+
+.. toctree::
+   :maxdepth: 4
+
+   CHAP.common.models
+
+Submodules
+----------
+
+CHAP.common.map\_utils module
+-----------------------------
+
+.. automodule:: CHAP.common.map_utils
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+CHAP.common.nexus\_utils module
+-------------------------------
+
+.. automodule:: CHAP.common.nexus_utils
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+CHAP.common.processor module
+----------------------------
+
+.. automodule:: CHAP.common.processor
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+CHAP.common.reader module
+-------------------------
+
+.. automodule:: CHAP.common.reader
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+CHAP.common.utils module
+------------------------
+
+.. automodule:: CHAP.common.utils
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+CHAP.common.writer module
+-------------------------
+
+.. automodule:: CHAP.common.writer
+   :members:
+   :undoc-members:
+   :show-inheritance:

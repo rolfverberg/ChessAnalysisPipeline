@@ -1,0 +1,42 @@
+Chess Analysis Pipeline (CHAP)
+==============================
+
+.. toctree::
+   :titlesonly:
+   :caption: Introduction
+
+   introduction
+
+.. toctree::
+   :titlesonly:
+   :caption: Contributions
+
+   CONTRIBUTIONS
+
+.. toctree::
+   :titlesonly:
+   :caption: Installation
+
+   installation
+
+.. toctree::
+   :titlesonly:
+   :caption: Pipeline
+
+   pipeline
+
+.. toctree::
+   :titlesonly:
+   :caption: Workflows
+
+   workflows/EDD
+   workflows/GIWAXS
+   workflows/SAXSWAXS
+   workflows/Tomo
+
+.. toctree::
+   :hidden:
+   :caption: Reference Guide
+
+   api_documentation
+

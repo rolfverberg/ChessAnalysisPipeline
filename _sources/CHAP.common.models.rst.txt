@@ -1,0 +1,34 @@
+CHAP.common.models package
+==========================
+
+.. automodule:: CHAP.common.models
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Submodules
+----------
+
+CHAP.common.models.common module
+--------------------------------
+
+.. automodule:: CHAP.common.models.common
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+CHAP.common.models.integration module
+-------------------------------------
+
+.. automodule:: CHAP.common.models.integration
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+CHAP.common.models.map module
+-----------------------------
+
+.. automodule:: CHAP.common.models.map
+   :members:
+   :undoc-members:
+   :show-inheritance:
