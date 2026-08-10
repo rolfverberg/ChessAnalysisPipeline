@@ -53,6 +53,7 @@ coverage.xml
 examples/tomo/data/
 examples/tomo/hollow_*
 examples/tomo/pipeline_id3a_pyramid_inparts.yaml
+tests/tomo/raw
 
 # Translations
 *.mo
