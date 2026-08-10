@@ -412,8 +412,10 @@ class TomoCHESSMapConverter(Processor):
         :raises RuntimeError: Inconsistent thetas among tomography
             image stacks.
         :raises ValueError: Invalid input or configuration parameter.
-        :return: NeXus style tomography input configuration.
-        :rtype: nexusformat.nexus.NXroot
+        :return: Metadata associated with the workflow, provenance
+            associated with the workflow, and a NeXus style tomography
+            input configuration.
+        :rtype: PipelineData, PipelineData, PipelineData
         """
         # System modules
         from copy import deepcopy
@@ -975,10 +977,11 @@ class TomoReduceProcessor(Processor):
             unable to load valid (the) tomography image stack(s).
         :raises TypeError: Error progagated from numexpr.evaluate().
         :raises ValueError: Invalid input or configuration parameter.
-        :return: Metadata associated with the workflow, a list of byte
-            stream representions of Matplotlib figures, and the result
-            of the data reduction.
-        :rtype: PipelineData, PipelineData, PipelineData
+        :return: Metadata associated with the workflow, provenance
+            associated with the workflow, list of byte stream
+            representions of Matplotlib figures, and the result of the
+            data reduction.
+        :rtype: PipelineData, PipelineData, PipelineData, PipelineData
         """
         # System modules
         from multiprocessing import cpu_count
@@ -2438,10 +2441,11 @@ class TomoFindCenterProcessor(Processor):
         :type data: list[PipelineData]
         :raises ValueError: Unable to find valid reduced data in input
             data.
-        :return: Metadata associated with the workflow, a list of byte
-            stream representions of Matplotlib figures, and the
-            calibrated center axis information.
-        :rtype: PipelineData, PipelineData, PipelineData
+        :return: Metadata associated with the workflow, provenance
+            associated with the workflow, list of byte stream
+            representions of Matplotlib figures, and the calibrated
+            center axis information.
+        :rtype: PipelineData, PipelineData, PipelineData, PipelineData
         """
         # Third party modules
         from nexusformat.nexus import nxsetconfig
@@ -2688,10 +2692,11 @@ class TomoReconstructProcessor(Processor):
         :type data: list[PipelineData]
         :raises RuntimeError: Dimension mismatch in `center_offsets`.
         :raises ValueError: Invalid input or configuration parameter.
-        :return: Metadata associated with the workflow, a list of byte
-            stream representions of Matplotlib figures, and the result
-            of the data reconstruction.
-        :rtype: PipelineData, PipelineData, PipelineData
+        :return: Metadata associated with the workflow, provenance
+            associated with the workflow, a list of byte stream
+            representions of Matplotlib figures, and the result of the
+            data reconstruction.
+        :rtype: PipelineData, PipelineData, PipelineData, PipelineData
         """
         # System modules
         from multiprocessing import cpu_count
@@ -3261,10 +3266,11 @@ class TomoCombineProcessor(Processor):
             object.
         :type data: list[PipelineData]
         :raises ValueError: Invalid input or configuration parameter.
-        :return: Metadata associated with the workflow, a list of byte
-            stream representions of Matplotlib figures, and the result
-            of the data combination.
-        :rtype: PipelineData, PipelineData, PipelineData
+        :return: Metadata associated with the workflow, provenance
+            associated with the workflow, a list of byte stream
+            representions of Matplotlib figures, and the result of the
+            data combination.
+        :rtype: PipelineData, PipelineData, PipelineData, PipelineData
         """
         # Third party modules
         from nexusformat.nexus import (
@@ -4135,9 +4141,11 @@ class TomoSpecProcessor(Processor):
         :param data: Input data.
         :type data: list[PipelineData]
         :raises ValueError: Invalid input or configuration parameter.
-        :return: Simulated SPEC file.
-        :rtype: nexusformat.nexus.NXroot or
-            (PipelineData, PipelineData)
+        :return: For id1a3: Metadata associated with the workflow,
+            provenance associated with the workflow, and the simulated
+            SPEC file, otherwise just the simulated SPEC file.
+        :rtype: (PipelineData, PipelineData, PipelineData) or
+            nexusformat.nexus.NXroot
         """
         # System modules
         from json import dumps, load
