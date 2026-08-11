@@ -1262,7 +1262,7 @@ class Fit:
 
         :param config: Fit configuration.
         :type config: CHAP.utils.models.FitConfig, optional
-        :param \*\*kwargs: Additional key, value pairs to pass on
+        :param **kwargs: Additional key, value pairs to pass on
             directly to the core fit routine.
         """
         # Check input parameters
@@ -1357,7 +1357,7 @@ class Fit:
         :type plot_residual: bool, optional
         :param plot_masked_data:
         :type plot_masked_data: bool, optional
-        :param \*\*kwargs: Additional key, value pairs to pass on
+        :param **kwargs: Additional key, value pairs to pass on
             directly to the Matplotlib plot function.
         """
         if result is None:
@@ -2740,7 +2740,7 @@ class FitMap(Fit):
         :type plot_residual: bool, optional
         :param plot_masked_data:
         :type plot_masked_data: bool, optional
-        :param \*\*kwargs: Additional key, value pairs to pass on
+        :param **kwargs: Additional key, value pairs to pass on
             directly to the Matplotlib plot function.
         """
         # Third party modules
@@ -2817,7 +2817,7 @@ class FitMap(Fit):
 
         :param config: Fit configuration.
         :type config: CHAP.utils.models.FitConfig, optional
-        :param \*\*kwargs: Additional key, value pairs to pass on
+        :param **kwargs: Additional key, value pairs to pass on
             directly to the core fit routine.
         """
         # Check input parameters

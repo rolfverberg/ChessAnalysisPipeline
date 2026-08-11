@@ -561,7 +561,7 @@ class PandasReader(Reader):
         :param comment: Character to identify comment lines in the
             input file, defaults to `'#'`.
         :type comment: str, optional
-        :param \*\*kwargs: Additional keyword arguments to supply to the
+        :param **kwargs: Additional keyword arguments to supply to the
             `pandas` reader.
         :rtype: `pandas.DataFrame`
         """
