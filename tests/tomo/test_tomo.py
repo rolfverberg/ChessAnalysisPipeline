@@ -23,80 +23,50 @@ from CHAP.common.writer import FileTreeWriter
 from CHAP.tomo.processor import *
 
 
-map_config = {
-    'title': 'hollow_cube',
-    'station': 'id3b',
-    'experiment_type': 'TOMO',
-    'sample': {'name': 'hollow_cube'},
-    'spec_scans': [{
-        'spec_file': 'raw/hollow_cube/hollow_cube',
-        'scan_numbers': 3}],
-    'independent_dimensions': [
-        {'label': 'rotation_angles',
-          'units': 'degrees',
-          'data_type': 'scan_column',
-          'name': 'theta'},
-        {'label': 'x_translation',
-          'units': 'mm',
-          'data_type': 'spec_motor',
-          'name': 'GI_samx'},
-        {'label': 'z_translation',
-          'units': 'mm',
-          'data_type': 'spec_motor',
-          'name': 'GI_samz'}],
-}
-
-def load_detector_config():
-    return YAMLReader.run(filename='detector_cube.yaml', log_level='WARNING')
-
-class TestEdd:
+class TestTomo:
 
     def test_id3b(self):
-        detector_config = load_detector_config()
+        run_config = {
+            'log_level': 'WARNING',
+            'inputdir': 'tests/tomo/input',
+            'interactive': False}
+        map_config = YAMLReader.run(
+            filename='map_id3b.yaml', **run_config)
+        sim_config = YAMLReader.run(
+            filename='tomo_sim_id3b.yaml', **run_config)
+        assert map_config['station'] == sim_config['station']
+        detector_config = YAMLReader.run(
+            filename='detector_cube.yaml', **run_config)
 
         simfield = TomoSimFieldProcessor.run(
-            data=[PipelineData(
-                name='YAMLReader',
-                data=detector_config,
-                schema='common.models.map.DetectorConfig')],
-            config={
-                'station': map_config['station'],
-                'sample_type': map_config['title'],
-                'sample_size': [1.0],
-                'wall_thickness': 0.2,
-                'theta_step': 1.0,
-                'slit_size': 2.0,
-            },
-            log_level='WARNING')
+            config=sim_config, detector_config=detector_config, **run_config)
         data = [PipelineData(
             name='TomoSimFieldProcessor',
             data=simfield,
             schema='tomo.models.TomoSimField')]
 
-        darkfield = TomoDarkFieldProcessor.run(data=data, log_level='WARNING')
+        darkfield = TomoDarkFieldProcessor.run(data=data, **run_config)
         data.append(PipelineData(
             name='TomoDarkFieldProcessor',
             data=darkfield,
             schema='tomo.models.TomoDarkField'))
 
         brightfield = TomoBrightFieldProcessor.run(
-            data=data, num_image=10, log_level='WARNING')
+            data=data, num_image=10, **run_config)
         data.append(PipelineData(
             name='TomoBrightFieldProcessor',
             data=brightfield,
             schema='tomo.models.TomoBrightField'))
 
-        tomospec = TomoSpecProcessor.run(data=data, log_level='WARNING')
+        tomospec = TomoSpecProcessor.run(data=data, **run_config)
         FileTreeWriter.run(
             data=[PipelineData(data=tomospec)],
             force_overwrite=True,
             outputdir='raw/hollow_cube',
-            log_level='WARNING')
+            **run_config)
 
         map_hollow_cube = MapProcessor.run(
-            config=map_config,
-            detector_config=detector_config,
-            log_level='WARNING')
+            config=map_config, detector_config=detector_config, **run_config)
         data = [PipelineData(
             name='MapProcessor', data=map_hollow_cube, schema='tomofields')]
 
@@ -110,7 +80,7 @@ class TestEdd:
                      'scan_numbers': 1}],
             },
             detector_config=detector_config,
-            log_level='WARNING')
+            **run_config)
         data.append(PipelineData(
             name='SpecReader', data=darkfield, schema='darkfield'))
 
@@ -124,80 +94,60 @@ class TestEdd:
                      'scan_numbers': 2}],
             },
             detector_config=detector_config,
-            log_level='WARNING')
+            **run_config)
         data.append(PipelineData(
             name='SpecReader', data=brightfield, schema='brightfield'))
 
-        data = list(TomoCHESSMapConverter.run(data=data, log_level='WARNING'))
+        data = list(TomoCHESSMapConverter.run(data=data, **run_config))
 
+        reduce_config = YAMLReader.run(
+            filename='reduce_data_id3b.yaml', **run_config)
         data += list(TomoReduceProcessor.run(
-            data=data,
-            config={'img_row_bounds': [3, 35]},
-            save_figures=False,
-            interactive=False,
-            log_level='WARNING'))
+            data=data, config=reduce_config, save_figures=False, **run_config))
 
+        center_config = YAMLReader.run(
+            filename='find_center_id3b.yaml', **run_config)
         data += TomoFindCenterProcessor.run(
-            data=data,
-            config={
-                'center_rows': [11, 28],
-                'gaussian_sigma': 0.05,
-                'ring_width': 1,
-            },
-            save_figures=False,
-            interactive=False,
-            log_level='WARNING')
+            data=data, config=center_config, save_figures=False, **run_config)
 
+        recon_config = YAMLReader.run(
+            filename='reconstruct_data.yaml', **run_config)
         data += TomoReconstructProcessor.run(
-            data=data,
-            config={
-                'x_bounds': [15, 390],
-                'y_bounds': [25, 380],
-                'secondary_iters': 10,
-                'ring_width': 1,
-            },
-            save_figures=False,
-            interactive=False,
-            log_level='WARNING')
+            data=data, config=recon_config, save_figures=False, **run_config)
 
         tomodata = PipelineItem.get_data(data, schema='tomodata')
         nxentry = tomodata[tomodata.default]
         nxdata = nxentry[nxentry.default]
         reconstructed_data = nxdata.nxsignal
-        assert reconstructed_data.shape == (32, 355, 375)
+        assert reconstructed_data.shape == (
+                reduce_config['img_row_bounds'][1] -
+                    reduce_config['img_row_bounds'][0],
+                recon_config['y_bounds'][1] -
+                    recon_config['y_bounds'][0],
+                recon_config['x_bounds'][1] -
+                    recon_config['x_bounds'][0])
         assert pytest.approx(reconstructed_data.sum()) == 164.28904724121094
 
         metadata = PipelineItem.get_data(
             data, schema='foxden.reader.FoxdenMetadataReader')
+        user_metadata = {
+            'findcenter': TomoFindCenterConfig(
+                center_offsets=[-0.5, -0.5], center_stack_index=0,
+                **center_config).model_dump(),
+            'reconstructed_data': TomoReconstructConfig(
+                z_bounds=[
+                    0,
+                    reduce_config['img_row_bounds'][1] - 
+                        reduce_config['img_row_bounds'][0]],
+                **recon_config).model_dump(),
+            'reduced_data': TomoReduceConfig(**reduce_config).model_dump(),
+        }
         assert metadata == {
             'btr': 'unknown',
             'did': '/workflow=tomo_reconstruct',
             'parent_did': None,
             'schema': 'user',
-            'user_metadata': {
-                'findcenter': {
-                    'center_offset_max': None,
-                    'center_offset_min': None,
-                    'center_offsets': [-0.5, -0.5],
-                    'center_rows': [11, 28],
-                    'center_search_range': None,
-                    'center_stack_index': 0,
-                    'gaussian_sigma': 0.05,
-                    'ring_width': 1.0},
-                'reconstructed_data': {
-                    'gaussian_sigma': None,
-                    'remove_stripe_sigma': None,
-                    'ring_width': 1.0,
-                    'secondary_iters': 10,
-                    'x_bounds': [15, 390],
-                    'y_bounds': [25, 380],
-                    'z_bounds': [0, 32]},
-                'reduced_data': {
-                    'delta_theta': None,
-                    'img_row_bounds': [3, 35],
-                    'remove_stripe': {}},
-            },
-        }
+            'user_metadata': user_metadata}
 
         provenance = PipelineItem.get_data(
             data, schema='foxden.reader.FoxdenProvenanceReader')
