@@ -27,9 +27,10 @@ class TestTomo:
 
     def test_id3b(self):
         run_config = {
-            'log_level': 'WARNING',
-            'inputdir': 'tests/tomo/input',
-            'interactive': False}
+            'root': 'tests/tomo',
+            'inputdir': 'input',
+            'interactive': False,
+            'log_level': 'WARNING'}
         map_config = YAMLReader.run(
             filename='map_id3b.yaml', **run_config)
         sim_config = YAMLReader.run(
