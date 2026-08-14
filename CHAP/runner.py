@@ -45,6 +45,7 @@ def parser():
     )
     return pparser
 
+
 def main():
     """Main function."""
     # System modules
@@ -186,6 +187,7 @@ def main():
         common_comm.barrier()
         sub_comm.Disconnect()
 
+
 def runner(run_config, pipeline_config, comm=None):
     """Main runner funtion.
 
@@ -211,6 +213,7 @@ def runner(run_config, pipeline_config, comm=None):
 
     return data
 
+
 def set_logger(log_level='INFO'):
     """Helper function to set the CHAP logger.
 
@@ -231,6 +234,7 @@ def set_logger(log_level='INFO'):
         datefmt='%Y-%m-%d %H:%M:%S', style='{'))
     logger.handlers = [log_handler]
     return logger, log_handler
+
 
 def run(
         run_config, pipeline_config, logger=None, log_handler=None, comm=None):
@@ -378,7 +382,7 @@ def run(
     if logger is not None:
         logger.info(f'Calling "execute" on {pipeline}')
     result = pipeline.execute()
-    if result:
+    if len(result) == 1:
         return result[0]['data']
     return result
 

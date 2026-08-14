@@ -236,8 +236,8 @@ class RunConfig(CHAPBaseModel):
     def validate_log_level(cls, log_level):
         """Capitalize `log_level`.
 
-        param value: Input value for `log_level`.
-        :type value: str
+        param log_level: Input value for `log_level`.
+        :type log_level: str
         :return: Capitalized `log_level`.
         :rtype: str
         """
@@ -264,3 +264,11 @@ class RunConfig(CHAPBaseModel):
         if hasattr(self, '_spawn'):
             return self._spawn
         return 0
+
+    def set_log_level(self, log_level):
+        """Set and capitalize `log_level`.
+
+        param log_level: Input value for `log_level`.
+        :type log_level: str
+        """
+        self.log_level = log_level.upper()
