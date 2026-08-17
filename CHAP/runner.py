@@ -355,6 +355,7 @@ def run(
             item_args['name'] = cls_name
         item_args.update(config)
         item_logger = getLogger(name)
+        item_logger.setLevel(run_config.log_level)
         if log_handler is not None:
             item_logger.addHandler(log_handler)
         item_args['logger'] = item_logger
@@ -362,6 +363,7 @@ def run(
             logger.info(
                 f'Initialized input fields for an instance of {cls_name}')
         pipeline_args.append(item_args)
+
     #t1 = time()
     pipeline = Pipeline(mmcs=pipeline_mmcs, args=pipeline_args)
     #t2 = time()
