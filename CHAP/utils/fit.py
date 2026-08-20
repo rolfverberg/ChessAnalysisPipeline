@@ -500,7 +500,7 @@ class ModelResult():
             self, model, parameters, *, x=None, y=None, method=None, ast=None,
             res_par_exprs=None, res_par_indices=None, res_par_names=None,
             result=None):
-        """Initialize SetNumexprThreads.
+        """Initialize ModelResult.
 
         :param model: Fit model.
         :type model: Components or lmfit.model.Model

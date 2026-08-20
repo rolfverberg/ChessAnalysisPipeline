@@ -1,9 +1,7 @@
 # Local modules
 from CHAP.runner import set_logger
 
-logger, _ = set_logger(log_level='DEBUG')
-
-def dict_to_zarr(tree, logger=logger):
+def dict_to_zarr(tree, logger=None):
     """Create a
     `Zarr group <https://zarr.readthedocs.io/en/stable/api/zarr/group/#zarr.Group>`__
     object based on a dictionary representing a Zarr tree of groups
@@ -41,7 +39,8 @@ def dict_to_zarr(tree, logger=logger):
             for name, child in node['children'].items():
                 if 'shape' in child or 'data' in child:
                     # It's a dataset
-                    logger.debug(f'Adding dset: {name}')
+                    if logger is not None:
+                        logger.debug(f'Adding dset: {name}')
                     zarr_parent.create_dataset(
                         name,
                         **child,

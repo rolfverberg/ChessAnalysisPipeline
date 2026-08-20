@@ -45,6 +45,7 @@ def parser():
     )
     return pparser
 
+
 def main():
     """Main function."""
     # System modules
@@ -186,6 +187,7 @@ def main():
         common_comm.barrier()
         sub_comm.Disconnect()
 
+
 def runner(run_config, pipeline_config, comm=None):
     """Main runner funtion.
 
@@ -211,6 +213,7 @@ def runner(run_config, pipeline_config, comm=None):
 
     return data
 
+
 def set_logger(log_level='INFO'):
     """Helper function to set the CHAP logger.
 
@@ -231,6 +234,7 @@ def set_logger(log_level='INFO'):
         datefmt='%Y-%m-%d %H:%M:%S', style='{'))
     logger.handlers = [log_handler]
     return logger, log_handler
+
 
 def run(
         run_config, pipeline_config, logger=None, log_handler=None, comm=None):
@@ -351,6 +355,7 @@ def run(
             item_args['name'] = cls_name
         item_args.update(config)
         item_logger = getLogger(name)
+        item_logger.setLevel(run_config.log_level)
         if log_handler is not None:
             item_logger.addHandler(log_handler)
         item_args['logger'] = item_logger
@@ -358,6 +363,7 @@ def run(
             logger.info(
                 f'Initialized input fields for an instance of {cls_name}')
         pipeline_args.append(item_args)
+
     #t1 = time()
     pipeline = Pipeline(mmcs=pipeline_mmcs, args=pipeline_args)
     #t2 = time()
@@ -378,7 +384,7 @@ def run(
     if logger is not None:
         logger.info(f'Calling "execute" on {pipeline}')
     result = pipeline.execute()
-    if result:
+    if len(result) == 1:
         return result[0]['data']
     return result
 

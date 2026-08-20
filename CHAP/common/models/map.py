@@ -1176,7 +1176,7 @@ class MapConfig(CHAPBaseModel):
                      'par_file': par_file}]
         else:
             spec_scans = data.get('spec_scans')
-            if 'spec_scans' in data:
+            if spec_scans is not None:
                 inputdir = data.get('inputdir')
                 if inputdir is None and info.data is not None:
                     inputdir = info.data.get('inputdir')

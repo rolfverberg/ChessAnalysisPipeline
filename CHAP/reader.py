@@ -8,9 +8,11 @@ import argparse
 import logging
 import os
 from sys import modules
+from typing import Union
 
 # Third party modules
 from pydantic import (
+    FilePath,
     PrivateAttr,
     constr,
     model_validator,
@@ -23,8 +25,8 @@ from CHAP.pipeline import PipelineItem
 def validate_reader_model(reader):
     """Validate the reader configuration.
 
-    :return: Validated model.
-    :rtype: Any
+    :return: Validated reader configuration.
+    :rtype: :class:`~CHAP.reader.Reader
     """
     reader._mapping_filename = reader.filename
     filename = os.path.normpath(os.path.realpath(
@@ -54,10 +56,10 @@ class Reader(PipelineItem):
     in a file to the list of `PipelineItem`\\s.
 
     :ivar filename: Name of file to read from.
-    :vartype filename: str
+    :vartype filename: pydantic.FilePath or str
     """
 
-    filename: constr(strip_whitespace=True, min_length=1)
+    filename: Union[FilePath, constr(strip_whitespace=True, min_length=1)]
 
     _mapping_filename: PrivateAttr(default=None)
 
