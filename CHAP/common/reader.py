@@ -791,7 +791,7 @@ class SpecReader(Reader):
         include raw data for in the returned NeXus
         `NXroot <https://manual.nexusformat.org/classes/base_classes/NXroot.html#index-0>`__
         object, defaults to None (only a valid input for EDD).
-    :vartype detectors_config: dict | DetectorConfig, optional
+    :vartype detector_config: dict | DetectorConfig, optional
     :ivar filename: Name of file to read from.
     :vartype filename: str, optional
     """
