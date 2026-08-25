@@ -2889,46 +2889,51 @@ class SetupNXdataProcessor(Processor):
                      for c in self.coords)
 
 class UnstructuredToStructuredProcessor(Processor):
-    """Processor to reshape data in a NeXus style
+    """Processor to aggregate "unstructured" data into a single NeXus
+    style
     `NXdata <https://manual.nexusformat.org/classes/base_classes/NXdata.html#index-0>`__
-    object from an "unstructured" to a "structured" representation.
+    object with a "structured" representation.
     """
 
-    def process(self, data, nxpath=None):
-        """Reshape the input data from an "unstructured" to a
-        "structured" representation.
+    def process(self, data, fields, name='data', attrs=None):
+        """Create and return a Nexus style
+        `NXdata <https://manual.nexusformat.org/classes/base_classes/NXdata.html#index-0>`__
+        object containing a single structured dataset composed from
+        multiple unstructured input datasets.
 
-        :param data: Input data.
+        This method validates the field configuration, validates and
+        reshapes the input data, determines common axes across all
+        signals, and constructs a `NXdata` group containing signal and
+        axis fields.
+
+        :param data: Input data objects containing unstructured
+            datasets.
         :type data: list[PipelineData]
-        :param nxname: Name for the returned
-            `NXdata <https://manual.nexusformat.org/classes/base_classes/NXdata.html#index-0>`__
-            object, defaults to `'data'`.
-        :type nxname: str, optional
-        :return: Converted data.
+        :param fields: Configuration describing how to structure the
+            input data.  This is a list of dictionaries. Each
+            dictionary must contain the required keys:
+
+            - ``"name"``: Name of the data item, which must correspond
+              to the ``name`` field of an item in ``data``.
+            - ``"type"``: Either ``"signal"`` or ``"axis"``.
+            - ``"axes"``: Required only for items where ``"type"`` is
+              ``"signal"``. List of the names of the fields containing
+              coordinate axes data for each dimension of the signal.
+
+            Optional keys include:
+            - ``"attrs"``: Dictionary of NeXus attributes to attach to.
+
+        :type fields: list[dict[str, Any]]
+        :param name: Name of the resulting `NXdata` group,
+            defaults to `"data"`.
+        :type name: str, optional
+        :param attrs: Attributes to attach to the resulting `NXdata`
+            group. The common axes determined during processing will be
+            added to this dictionary under the ``"axes"`` key.
+        :type attrs: dict[str, Any], optional
+        :returns: A structured `NXdata` object containing all signals
+            and axes defined by the configuration.
         :rtype: nexusformat.nexus.NXdata
-        """
-        # Third party modules
-        from nexusformat.nexus import NXdata
-
-        try:
-            nxobject = self.get_data(data)
-        except Exception:
-            nxobject = self.get_pipelinedata_item(data)
-        if isinstance(nxobject, NXdata):
-            return self._convert_nxdata(nxobject)
-        if nxpath is not None:
-            try:
-                nxobject = nxobject[nxpath]
-            except Exception as exc:
-                raise ValueError(
-                    f'Invalid parameter nxpath ({nxpath})') from exc
-        else:
-            raise ValueError(f'Invalid input data ({data})')
-        return self._convert_nxdata(nxobject)
-
-    def _convert_nxdata(self, nxdata):
-        """Convert a NeXus style `NXdata` object from an "unstructured" to a
-        "structured" representation.
         """
         # Third party modules
         from nexusformat.nexus import (
@@ -2936,128 +2941,265 @@ class UnstructuredToStructuredProcessor(Processor):
             NXfield,
         )
 
-        # Local modules
-        from CHAP.common.map_utils import get_axes
+        signals, axes = self.validate_config_fields(fields)
+        signals, axes = self.validate_data(data, signals, axes)
+        common_axes = self.get_common_axes(signals)
 
-        # Extract axes from the NXdata attributes
-        axes = get_axes(nxdata)
-        for a in axes:
-            if a not in nxdata:
-                raise ValueError(f'Missing coordinates for {a}')
+        signals, axes, common_axes = self.structure_signal_values(
+            signals, axes, common_axes)
+        if attrs is None:
+            attrs = {}
+        attrs.update({'axes': common_axes})
 
-        # Check the independent dimensions and axes
-        unstructured_axes = []
-        unstructured_dim = None
-        for a in axes:
-            if not isinstance(nxdata[a], NXfield):
-                raise ValueError(
-                    f'Invalid axis field type ({type(nxdata[a])})')
-            if len(nxdata[a].shape) == 1:
-                if not unstructured_axes:
-                    unstructured_axes.append(a)
-                    unstructured_dim = nxdata[a].size
-                else:
-                    if nxdata[a].size == unstructured_dim:
-                        unstructured_axes.append(a)
-                    elif 'unstructured_axes' in nxdata.attrs:
-                        raise ValueError('Inconsistent axes dimensions')
-            elif 'unstructured_axes' in nxdata.attrs:
-                raise ValueError(
-                    f'Invalid unstructered axis shape ({nxdata[a].shape})')
-        if not axes and hasattr(nxdata, 'signal'):
-            if len(nxdata[nxdata.signal].shape) < 2:
-                raise ValueError(
-                    f'Invalid signal shape ({nxdata[nxdata.signal].shape})')
-            unstructured_dim = nxdata[nxdata.signal].shape[0]
-            for k, v in nxdata.items():
-                if (isinstance(v, NXfield) and len(v.shape) == 1
-                        and v.shape[0] == unstructured_dim):
-                    unstructured_axes.append(k)
-        if unstructured_dim is None:
-            raise ValueError('Unable to determine the unstructered axes')
-        axes = unstructured_axes
+        return NXdata(
+            name=name,
+            attrs=attrs,
+            **{
+                signal['name']: NXfield(
+                    name=signal['name'],
+                    attrs=signal['attrs'],
+                    value=signal['value_structured']
+                )
+                for signal in signals
+            },
+            **{
+                axis['name']: NXfield(
+                    name=axis['name'],
+                    attrs=axis['attrs'],
+                    value=axis['value_unique']
+                )
+                for axis in axes
+            }
+        )
 
-        # Identify unique coordinate points for each axis
-        unique_coords = {}
-        coords = {}
-        axes_attrs = {}
-        for a in axes:
-            coords[a] = nxdata[a].nxdata
-            unique_coords[a] = np.sort(np.unique(nxdata[a].nxdata))
-            axes_attrs[a] = deepcopy(nxdata[a].attrs)
-            if 'target' in axes_attrs[a]:
-                del axes_attrs[a]['target']
+    def validate_config_fields(self, fields):
+        """Validate and normalize the field configuration.
 
-        # Calculate the total number of unique coordinate points
-        unique_npts = np.prod([len(v) for k, v in unique_coords.items()])
-        if unique_npts != unstructured_dim:
-            self.logger.warning('The unstructered grid does not fully map to '
-                                'a structered one (there are missing points)')
+        This method separates the input field configuration into signal
+        and axis definitions, performs basic validation, and ensures
+        that all axes referenced by signals are defined as axis fields.
 
-        # Identify the signals and the data point axes
+        The returned signal and axis dictionaries are normalized into a
+        consistent internal representation used by later processing
+        stages.
+
+        :param fields: Configuration describing how input data should
+            be structured. Each item must define a ``"name"`` and
+            ``"type"`` key, where ``"type"`` is either ``"signal"``
+            or ``"axis"``. Signal entries must additionally define an
+            ``"axes"`` list.
+        :type fields: list[dict[str, Any]]
+        :raises ValueError: If a signal references an axis that is not
+            defined, or if a signal is defined before any axis exist.
+        :returns: Validated signal and axis definitions.
+        :rtype: tuple[list[dict], list[dict]]
+        """
+        self.logger.info('Validating fields parameter')
+
+        axes = []
         signals = []
-        data_point_axes = []
-        data_point_shape = []
-        if hasattr(nxdata, 'signal'):
-            if (len(nxdata[nxdata.signal].shape) < 2
-                    or nxdata[nxdata.signal].shape[0] != unstructured_dim):
-                raise ValueError(
-                    f'Invalid signal shape ({nxdata[nxdata.signal].shape})')
-            signals = [nxdata.signal]
-            data_point_shape = [nxdata[nxdata.signal].shape[1:]]
-        for k, v in nxdata.items():
-            if (isinstance(v, NXfield) and k not in axes and k not in signals
-                    and v.shape[0] == unstructured_dim):
-                signals.append(k)
-                if not data_point_shape:
-                    data_point_shape.append(v.shape[1:])
-        data_point_shape = data_point_shape[0] \
-            if len(data_point_shape) == 1 else []
-        for _ in data_point_shape:
-            for k, v in nxdata.items():
-                if (isinstance(v, NXfield) and k not in axes
-                        and v.shape == data_point_shape):
-                    data_point_axes.append(k)
 
-        # Create the structured NXdata object
-        structured_shape = tuple(len(unique_coords[a]) for a in axes)
-        attrs = deepcopy(nxdata.attrs)
-        if 'unstructured_axes' in attrs:
-            attrs.pop('unstructured_axes')
-        attrs['axes'] = axes
-        nxdata_structured = NXdata(
-            name=f'{nxdata.nxname}_structured',
-            **{a: NXfield(
-                value=unique_coords[a],
-                attrs=axes_attrs[a])
-               for a in axes},
-            **{s: NXfield(
-#                value=np.reshape( # FIX not always a sound way to reshape.
-#                    nxdata[s], (*structured_shape, *nxdata[s].shape[1:])),
-                 dtype=nxdata[s].dtype,
-                 shape=(*structured_shape, *nxdata[s].shape[1:]),
-                attrs=nxdata[s].attrs)
-               for s in signals},
-            attrs=attrs)
-        if len(data_point_axes) == 1:
-            axes = nxdata_structured.attrs['axes']
-            if isinstance(axes, str):
-                axes = [axes]
-            nxdata_structured.attrs['axes'] = axes + data_point_axes
-        for a in data_point_axes:
-            nxdata_structured[a] = NXfield(
-                value=nxdata[a], attrs=nxdata[a].attrs)
+        for field in fields:
+            field_type = field.get('type')
+            name = field.get('name')
+            attrs = field.get('attrs', {})
 
-        # Populate the structured NXdata object with values
-        for i, coord in enumerate(zip(*tuple(nxdata[a].nxdata for a in axes))):
-            structured_index = tuple(
-                np.asarray(
-                    coord[ii] == unique_coords[axes[ii]]).nonzero()[0][0]
-                for ii in range(len(axes)))
-            for s in signals:
-                nxdata_structured[s][structured_index] = nxdata[s][i]
+            if field_type == 'axis':
+                axes.append({'name': name, 'value': None, 'attrs': attrs})
+                self.logger.debug(f'Registered axis "{name}"')
 
-        return nxdata_structured
+            elif field_type == 'signal':
+                _axes = field.get('axes', [])
+                if not axes:
+                    raise ValueError(f'Signal "{name}" has no axes defined')
+                signals.append({'name': name, 'axes': _axes,
+                                'value': None, 'attrs': attrs})
+                self.logger.debug(
+                    f'Registered signal "{name}" with axes {_axes}'
+                )
+
+        # Validate that all axes used by signals exist as type: axis
+        axes_names = [a['name'] for a in axes]
+        for signal in signals:
+            for axis in signal['axes']:
+                if axis not in axes_names:
+                    raise ValueError(
+                        f'Signal {signal["name"]} '
+                        + f'references unknown axis "{axis}"'
+                    )
+
+        self.logger.info(
+            'Validated configuration for '
+            + f'{len(signals)} signals and {len(axes)} axes'
+        )
+        return signals, axes
+
+    def get_common_axes(self, signals):
+        """Determine the common leading axis shared by all signals.
+
+        This method computes the longest common *prefix* of axis names
+        across all signal definitions. Only axes that appear in the
+        same order at the beginning of each signal's ``axes`` list are
+        included in the result.
+
+        This is used to identify the shared coordinate dimensions for a
+        structured NeXus style
+        `NXdata <https://manual.nexusformat.org/classes/base_classes/NXdata.html#index-0>`__`NXdata`
+        object.
+
+        :param signals: Validated signal definitions. Each signal must
+            define an ``"axes"`` key containing an ordered list of axis
+            names.
+        :type signals: list[dict]
+        :returns: Axis names that form the common leading axis for all
+            signals. Returns an empty list if no common prefix exists.
+        :rtype: list[str]
+        """
+        self.logger.info('Computing common dataset axes')
+
+        if not signals:
+            self.logger.warning('No signals provided; no common axes')
+            return []
+
+        # Start with the first signal's axes
+        common_axes = list(signals[0]['axes'])
+
+        for signal in signals[1:]:
+            _axes = signal['axes']
+            i = 0
+            max_i = min(len(common_axes), len(_axes))
+            while i < max_i and common_axes[i] == _axes[i]:
+                i += 1
+            common_axes = common_axes[:i]
+            if not common_axes:
+                break
+
+        self.logger.info(f'Computed common axes: {common_axes}')
+        return common_axes
+
+    def validate_data(self, data, signals, axes):
+        """Validate and normalize input data for axes and signals.
+
+        This method retrieves raw input data for each axis and signal,
+        propagates metadata attributes, computes unique axis values,
+        and allocates structured arrays for signal data.
+
+        For each axis:
+          - Raw data is loaded.
+          - Attributes are merged (without overwriting user-specified
+            ones).
+          - Unique axis values are computed.
+
+        For each signal:
+          - Raw data is loaded.
+          - Attributes are merged (without overwriting user-specified
+            ones).
+          - A structured output array is allocated based on its axes.
+          - Total signal size is validated against the expected shape.
+
+        :param data: Input data.
+        :type data: list[PipelineData]
+        :param signals: Validated signal field definitions.
+        :type signals: list[dict]
+        :param axes: Validated axis field definitions.
+        :type axes: list[dict]
+        :raises ValueError: If a signal's data size does not match the
+            expected size derived from its axes.
+        :returns: Updated signal and axis definitions with populated
+            values and derived metadata.
+        :rtype: tuple[list[dict], list[dict]]
+        """
+        self.logger.info('Validating input data')
+        self.logger.info('Validating axis data')
+        for axis in axes:
+            value = self.get_data(data, name=axis['name'])
+            # Merge attributes, preserving explicitly defined ones
+            axis['attrs'] = {
+                **axis['attrs'],
+                **{k: v for k, v in value.attrs.items()
+                   if k not in axis['attrs'] and k != 'target'}
+            }
+            axis['value'] = value
+            axis['value_unique'] = np.unique(value)
+            self.logger.debug(
+                f'Axis {axis["name"]}: {value.size} entries, '
+                f'{axis["value_unique"].size} unique'
+            )
+
+        # Build a lookup table for faster axis access by name
+        axes_by_name = {a['name']: a for a in axes}
+        self.logger.info("Validating signal data")
+        for signal in signals:
+            name = signal['name']
+            value = self.get_data(data, name=name)
+            # Merge attributes, preserving explicitly defined ones
+            signal['attrs'] = {
+                **signal['attrs'],
+                **{k: v for k, v in value.attrs.items()
+                   if k not in signal['attrs'] and k != 'target'}
+            }
+            signal['value'] = value
+            _axes = signal['axes']
+            signal['attrs']['axes'] = _axes
+            shape = tuple(
+                [axes_by_name[a]['value_unique'].size for a in _axes]
+            )
+            signal['value_structured'] = np.empty(shape, dtype=value.dtype)
+            size_expected = np.prod(shape)
+            size_actual = signal['value'].size
+            self.logger.debug(
+                f'Signal "{name}": expected size {size_expected} (shape: {shape}), '
+                f'actual size {size_actual} (shape: {value.shape})'
+            )
+            if size_actual != size_expected:
+                raise(ValueError(
+                    f'Signal {name} has size {size_actual}; '
+                    + f'expected {size_expected}'
+                ))
+        self.logger.info('Validated input data')
+        return signals, axes
+
+    def structure_signal_values(self, signals, axes, common_axes):
+        """Reshape and populate structured signal arrays using common
+        axes.
+
+        This method determines computes index mappings from raw axis
+        values to their unique sorted representations, and inserts each
+        signal's unstructured data into its preallocated structured
+        array.
+
+        Only the common axes are used for structuring; any trailing,
+        signal-specific axes are assumed to have already been handled
+        when allocating the structured signal arrays.
+
+        :param signals: Signal definitions with raw and preallocated
+            structured data arrays.
+        :type signals: list[dict]
+        :param axes: Axis definitions containing raw values and unique
+            values.
+        :type axes: list[dict]
+        :param common_axes: Ordered list of the names of the dataset's
+            common axes.
+        :type common_axes: list[str]
+        :returns:
+            - Updated signal definitions with populated structured
+              arrays.
+            - Unmodified axis definitions.
+            - Common axis names shared by all signals.
+        :rtype: tuple[list[dict], list[dict], list[str]]
+        """
+        self.logger.info('Structuring dataset')
+        axes_by_name = {a['name']: a for a in axes if a['name'] in common_axes}
+        indices = {
+            a: np.searchsorted(axes_by_name[a]['value_unique'],
+                               axes_by_name[a]['value'])
+            for a in common_axes
+        }
+        _indices = tuple(indices[a] for a in common_axes)
+        for signal in signals:
+            signal['value_structured'][_indices] = signal['value']
+
+        return signals, axes, common_axes
 
 
 class UpdateNXvalueProcessor(Processor):
