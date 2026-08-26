@@ -2,6 +2,9 @@
 #-*- coding: utf-8 -*-
 """Main functions to execute a ChessAnalysisPipeline (CHAP)."""
 
+# System modules
+from copy import deepcopy
+
 
 def parser():
     """Return an argument parser for the CHAP comment line interface
@@ -268,7 +271,7 @@ def run(
     pipeline_mmcs = []
     #from time import time
     #t0 = time()
-    for item in pipeline_config:
+    for item in deepcopy(pipeline_config):
 
         # Load individual object with given name from its module
         config = run_config.model_dump()
@@ -383,7 +386,7 @@ def run(
     # Execute the pipeline
     if logger is not None:
         logger.info(f'Calling "execute" on {pipeline}')
-    result = pipeline.execute()
+    result = pipeline.execute(pipeline_config)
     if len(result) == 1:
         return result[0]['data']
     return result

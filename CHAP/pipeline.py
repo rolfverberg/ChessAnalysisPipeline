@@ -52,6 +52,7 @@ class PipelineItem(RunConfig):
     :vartype schema: str, optional
     """
 
+    executed_pipeline: Optional[conlist(item_type=dict)] = None
     logger: Optional[logging.Logger] = None
     name: Optional[constr(strip_whitespace=True, min_length=1)] = None
     schema_: Optional[constr(strip_whitespace=True, min_length=1)] = \
@@ -66,6 +67,8 @@ class PipelineItem(RunConfig):
 #    _provenance: dict = PrivateAttr(default=None)
     _status: Literal[
         'read', 'write_pending', 'written'] = PrivateAttr(default=None)
+
+    _exclude = {'executed_pipeline'}
 
     @model_validator(mode='after')
     def validate_pipelineitem_after(self):
@@ -615,7 +618,7 @@ class Pipeline(CHAPBaseModel):
 
         return self
 
-    def execute(self):
+    def execute(self, pipeline_config):
         """Executes the pipeline.
 
         :return: List of `PipelineData` items after pipeline execution.
@@ -624,9 +627,12 @@ class Pipeline(CHAPBaseModel):
         t0 = time()
         self.logger.info('Executing "execute"\n')
 
-        for mmc, item, args in zip(self.mmcs, self._items, self.args):
+        for i, (mmc, item, args) in enumerate(zip(
+                self.mmcs, self._items, self.args)):
             if hasattr(item, 'execute'):
-                current_item = mmc(data=self._data, modelmetaclass=mmc, **args)
+                current_item = mmc(
+                    data=self._data, modelmetaclass=mmc,
+                    executed_pipeline=pipeline_config[:i], **args)
                 read_status = None
                 if item.method_type == 'read' and item.has_filename():
                     read_status = self._filename_mapping[
