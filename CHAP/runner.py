@@ -3,7 +3,16 @@
 """Main functions to execute a ChessAnalysisPipeline (CHAP)."""
 
 # System modules
+import os
 from copy import deepcopy
+from subprocess import check_output
+
+
+def get_current_git_hash():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    return check_output(
+        ['git', '-C', script_dir, 'rev-parse', 'HEAD']
+    ).decode('utf-8').strip()
 
 
 def parser():
