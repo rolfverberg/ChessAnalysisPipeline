@@ -84,8 +84,9 @@ def get_unique_hkls_ds(materials, tth_max=None, tth_tol=None, round_sig=8):
     :param round_sig: Number of significant figures in the unique
         lattice spacings, defaults to `8`.
     :type round_sig: int, optional
-    :return: Unique HKLs and lattice spacings.
-    :rtype: numpy.ndarray, numpy.ndarray
+    :return: Unique HKLs, lattice spacings, and the material list
+        in the same index order.
+    :rtype: numpy.ndarray, numpy.ndarray, list[str]
     """
     # Local modules
     from CHAP.edd.models import MaterialConfig
@@ -96,9 +97,9 @@ def get_unique_hkls_ds(materials, tth_max=None, tth_tol=None, round_sig=8):
             _materials[i] = m._material
     hkls = np.empty((0,3))
     ds = np.empty((0))
-    ds_index = np.empty((0))
-    for i, material in enumerate(_materials):
-        plane_data = material.planeData
+    material_names = []
+    for i, m in enumerate(_materials):
+        plane_data = m.planeData
         if tth_max is not None:
             plane_data.exclusions = None
             plane_data.tThMax = np.radians(tth_max)
@@ -107,7 +108,7 @@ def get_unique_hkls_ds(materials, tth_max=None, tth_tol=None, round_sig=8):
         hkls = np.vstack((hkls, plane_data.hkls.T))
         ds_i = plane_data.getPlaneSpacings()
         ds = np.hstack((ds, ds_i))
-        ds_index = np.hstack((ds_index, i*np.ones(len(ds_i))))
+        material_names.extend(len(ds_i)*[m.name])
     # Sort lattice spacings in reverse order (use -)
     ds_unique, ds_index_unique, _ = np.unique(
         -ds.round(round_sig), return_index=True, return_counts=True)
@@ -115,8 +116,9 @@ def get_unique_hkls_ds(materials, tth_max=None, tth_tol=None, round_sig=8):
     # Limit the list to unique lattice spacings
     hkls_unique = hkls[ds_index_unique,:].astype(int)
     ds_unique = ds[ds_index_unique]
+    material_names_unique = np.asarray(material_names)[ds_index_unique]
 
-    return hkls_unique, ds_unique
+    return hkls_unique, ds_unique, material_names_unique
 
 
 def select_tth_initial_guess(x, y, hkls, ds, tth_initial_guess=5.0,
@@ -478,8 +480,8 @@ def select_material_params(
         add_material(m)
 
     # Add materials to figure
-    for i, material in enumerate(materials):
-        hkls, ds = get_unique_hkls_ds([material])
+    for i, m in enumerate(materials):
+        hkls, ds, _ = get_unique_hkls_ds([m])
         E0s = get_peak_locations(ds, tth)
         for hkl, E0 in zip(hkls, E0s):
             if x[0] <= E0 <= x[-1]:
@@ -658,10 +660,10 @@ def select_mask_and_hkls(x, y, hkls, ds, tth, preselected_bin_ranges=None,
     :type y: numpy.ndarray
     :param hkls: Avaliable Unique HKL values to fit peaks for in the
         calibration routine.
-    :type hkls: list[list[int]]
+    :type hkls: numpy.ndarray or list[list[int]]
     :param ds: Lattice spacings associated with the unique HKL indices
         in angstrom.
-    :type ds: list[float]
+    :type ds: numpy.ndarray or list[float]
     :param tth: (calibrated) 2&theta angle.
     :type tth: float
     :param preselected_bin_ranges: Preselected MCA channel index ranges
@@ -1266,38 +1268,28 @@ def get_rolling_sum_spectra(
 
 
 def get_spectra_fits(
-        spectra, energies, peak_locations, detector, **kwargs):
-    """Return twenty arrays of fit results for the map of spectra
-    provided: uniform centers, uniform center errors, uniform
-    amplitudes, uniform amplitude errors, uniform amplitude vary,
-    uniform sigmas, uniform sigma errors, uniform best fit,
-    uniform residuals, uniform reduced chi, uniform success codes,
-    unconstrained centers, unconstrained center errors,
-    unconstrained amplitudes, unconstrained amplitude
-    errors, unconstrained amplitude vary, unconstrained sigmas,
-    unconstrained sigma errors, unconstrained best fit,
-    unconstrained residuals, unconstrained reduced chi, and
-    unconstrained success codes.
+        spectra, energies, peak_locations, detector, fit_type='unconstrained',
+        **kwargs):
+    """Return a dictionary with eleven items for the fit results
+    for the map of spectra provided: centers, center errors,
+    amplitudes, amplitude errors, amplitude vary, sigmas, sigma errors,
+    best fit, residuals, reduced chi, and success codes.
 
     :param spectra: Intensity spectra to fit.
     :type spectra: numpy.ndarray
     :param energies: Bin energies for the spectra provided.
     :type energies: numpy.ndarray
-    :param peak_locations: Initial guesses for peak centers to use
-        for the uniform fit.
+    :param peak_locations: Initial guesses for peak centers.
     :type peak_locations: list[float]
     :param detector: MCA detector element configuration.
     :type detector: MCAElementStrainAnalysisConfig
-    :returns: Uniform and unconstrained centers, amplitudes, sigmas
-        (and errors for all three and vary for amplitudes),
-        best fits, residuals between the best fits and the input
-        spectra, reduced chi, and fit success statuses.
-    :rtype: numpy.ndarray, numpy.ndarray, numpy.ndarray,
-        numpy.ndarray, numpy.ndarray, numpy.ndarray, numpy.ndarray,
-        numpy.ndarray, numpy.ndarray, numpy.ndarray, numpy.ndarray,
-        numpy.ndarray, numpy.ndarray, numpy.ndarray, numpy.ndarray,
-        numpy.ndarray, numpy.ndarray, numpy.ndarray, numpy.ndarray,
-        numpy.ndarray, numpy.ndarray, numpy.ndarray
+    :param fit_type: Type of fit, defaults to `'unconstrained'`.
+    :type fit_type: Literal['uniform', 'unconstrained'], optional
+    :returns: Centers, amplitudes, sigmas (and errors for all three
+        and vary for amplitudes), best fits, residuals between the
+        best fits and the input spectra, reduced chi, and fit success
+        statuses.
+    :rtype: dict
     """
     # System modules
     from os import getpid
@@ -1335,7 +1327,7 @@ def get_spectra_fits(
         models += backgroundpeaks
     models.append(
         {'model_type': 'multipeak', 'centers': list(peak_locations),
-         'fit_type': 'uniform', 'peak_models': detector.peak_models,
+         'fit_type': fit_type, 'peak_models': detector.peak_models,
          'centers_range': detector.centers_range,
          'centers_range_fraction': detector.centers_range_fraction,
          'fwhm_min': detector.fwhm_min, 'fwhm_max': detector.fwhm_max})
@@ -1355,309 +1347,156 @@ def get_spectra_fits(
         'memfolder': f'/tmp/{getpid()}_joblib_memmap',
     }
 
-    # Perform uniform fit
+    # Perform fit
     # FIX make more generic for fit parameters
-    uniform_fit = FitProcessor.run(
+    fit = FitProcessor.run(
         data=[PipelineData(name='signal', data=spectra),
               PipelineData(name='coordinates', data=energies)],
         config=config, **kwargs)
-    uniform_success = uniform_fit.success
+    success = fit.success
     if spectra.ndim == 1:
-        if uniform_success:
+        if success:
             if num_peak == 1:
-                uniform_fit_centers = [uniform_fit.best_values['center']]
-                uniform_fit_centers_errors = [
-                    uniform_fit.best_errors['center']]
-                uniform_fit_amplitudes = [
-                    uniform_fit.best_values['amplitude']]
-                uniform_fit_amplitudes_errors = [
-                    uniform_fit.best_errors['amplitude']]
-                uniform_fit_amplitudes_vary = [
-                    uniform_fit.best_vary['amplitude']]
-                uniform_fit_sigmas = [uniform_fit.best_values['sigma']]
-                uniform_fit_sigmas_errors = [uniform_fit.best_errors['sigma']]
+                fit_centers = [fit.best_values['center']]
+                fit_centers_errors = [fit.best_errors['center']]
+                fit_amplitudes = [fit.best_values['amplitude']]
+                fit_amplitudes_errors = [fit.best_errors['amplitude']]
+                fit_amplitudes_vary = [fit.best_vary['amplitude']]
+                fit_sigmas = [fit.best_values['sigma']]
+                fit_sigmas_errors = [fit.best_errors['sigma']]
                 if detector.peak_models == 'pvoigt':
-                    uniform_fit_fractions = [
-                        uniform_fit.best_values['fraction']]
-                    uniform_fit_fractions_errors = [
-                        uniform_fit.best_errors['fraction']]
+                    fit_fractions = [fit.best_values['fraction']]
+                    fit_fractions_errors = [fit.best_errors['fraction']]
             else:
-                uniform_fit_centers = [
-                    uniform_fit.best_values[
+                fit_centers = [
+                    fit.best_values[
                         f'peak{i+1}_center'] for i in range(num_peak)]
-                uniform_fit_centers_errors = [
-                    uniform_fit.best_errors[
+                fit_centers_errors = [
+                    fit.best_errors[
                         f'peak{i+1}_center'] for i in range(num_peak)]
-                uniform_fit_amplitudes = [
-                    uniform_fit.best_values[
+                fit_amplitudes = [
+                    fit.best_values[
                         f'peak{i+1}_amplitude'] for i in range(num_peak)]
-                uniform_fit_amplitudes_errors = [
-                    uniform_fit.best_errors[
+                fit_amplitudes_errors = [
+                    fit.best_errors[
                         f'peak{i+1}_amplitude'] for i in range(num_peak)]
-                uniform_fit_amplitudes_vary = [
-                    uniform_fit.best_vary[
+                fit_amplitudes_vary = [
+                    fit.best_vary[
                         f'peak{i+1}_amplitude'] for i in range(num_peak)]
-                uniform_fit_sigmas = [
-                    uniform_fit.best_values[
+                fit_sigmas = [
+                    fit.best_values[
                         f'peak{i+1}_sigma'] for i in range(num_peak)]
-                uniform_fit_sigmas_errors = [
-                    uniform_fit.best_errors[
+                fit_sigmas_errors = [
+                    fit.best_errors[
                         f'peak{i+1}_sigma'] for i in range(num_peak)]
                 if detector.peak_models == 'pvoigt':
-                    uniform_fit_fractions = [
-                        uniform_fit.best_values[
+                    fit_fractions = [
+                        fit.best_values[
                             f'peak{i+1}_fraction'] for i in range(num_peak)]
-                    uniform_fit_fractions_errors = [
-                        uniform_fit.best_errors[
+                    fit_fractions_errors = [
+                        fit.best_errors[
                             f'peak{i+1}_fraction'] for i in range(num_peak)]
         else:
-            uniform_fit_centers = list(peak_locations)
-            uniform_fit_centers_errors = [0]
-            uniform_fit_amplitudes = [0]
-            uniform_fit_amplitudes_errors = [0]
-            uniform_fit_amplitudes_vary = [False]
-            uniform_fit_sigmas = [0]
-            uniform_fit_sigmas_errors = [0]
+            fit_centers = list(peak_locations)
+            fit_centers_errors = [0]
+            fit_amplitudes = [0]
+            fit_amplitudes_errors = [0]
+            fit_amplitudes_vary = [False]
+            fit_sigmas = [0]
+            fit_sigmas_errors = [0]
             if detector.peak_models == 'pvoigt':
-                uniform_fit_fractions = [0]
-                uniform_fit_fractions_errors = [0]
+                fit_fractions = [0]
+                fit_fractions_errors = [0]
     else:
         if num_peak == 1:
-            uniform_fit_centers = [
-                uniform_fit.best_values[
-                    uniform_fit.best_parameters().index('center')]]
-            uniform_fit_centers_errors = [
-                uniform_fit.best_errors[
-                    uniform_fit.best_parameters().index('center')]]
-            uniform_fit_amplitudes = [
-                uniform_fit.best_values[
-                    uniform_fit.best_parameters().index('amplitude')]]
-            uniform_fit_amplitudes_errors = [
-                uniform_fit.best_errors[
-                    uniform_fit.best_parameters().index('amplitude')]]
-            uniform_fit_amplitudes_vary = [
-                uniform_fit.best_vary[
-                    uniform_fit.best_parameters().index('amplitude')]]
-            uniform_fit_sigmas = [
-                uniform_fit.best_values[
-                    uniform_fit.best_parameters().index('sigma')]]
-            uniform_fit_sigmas_errors = [
-                uniform_fit.best_errors[
-                    uniform_fit.best_parameters().index('sigma')]]
+            fit_centers = [
+                fit.best_values[fit.best_parameters().index('center')]]
+            fit_centers_errors = [
+                fit.best_errors[fit.best_parameters().index('center')]]
+            fit_amplitudes = [
+                fit.best_values[fit.best_parameters().index('amplitude')]]
+            fit_amplitudes_errors = [
+                fit.best_errors[fit.best_parameters().index('amplitude')]]
+            fit_amplitudes_vary = [
+                fit.best_vary[fit.best_parameters().index('amplitude')]]
+            fit_sigmas = [
+                fit.best_values[fit.best_parameters().index('sigma')]]
+            fit_sigmas_errors = [
+                fit.best_errors[fit.best_parameters().index('sigma')]]
             if detector.peak_models == 'pvoigt':
-                uniform_fit_fractions = [
-                    uniform_fit.best_values[
-                        uniform_fit.best_parameters().index('fraction')]]
-                uniform_fit_fractions_errors = [
-                    uniform_fit.best_errors[
-                        uniform_fit.best_parameters().index('fraction')]]
+                fit_fractions = [
+                    fit.best_values[fit.best_parameters().index('fraction')]]
+                fit_fractions_errors = [
+                    fit.best_errors[fit.best_parameters().index('fraction')]]
         else:
-            uniform_fit_centers = [
-                uniform_fit.best_values[
-                    uniform_fit.best_parameters().index(f'peak{i+1}_center')]
+            fit_centers = [
+                fit.best_values[
+                    fit.best_parameters().index(f'peak{i+1}_center')]
                 for i in range(num_peak)]
-            uniform_fit_centers_errors = [
-                uniform_fit.best_errors[
-                    uniform_fit.best_parameters().index(f'peak{i+1}_center')]
+            fit_centers_errors = [
+                fit.best_errors[
+                    fit.best_parameters().index(f'peak{i+1}_center')]
                 for i in range(num_peak)]
-            uniform_fit_amplitudes = [
-                uniform_fit.best_values[
-                    uniform_fit.best_parameters().index(
+            fit_amplitudes = [
+                fit.best_values[
+                    fit.best_parameters().index(
                         f'peak{i+1}_amplitude')]
                 for i in range(num_peak)]
-            uniform_fit_amplitudes_errors = [
-                uniform_fit.best_errors[
-                    uniform_fit.best_parameters().index(
+            fit_amplitudes_errors = [
+                fit.best_errors[
+                    fit.best_parameters().index(
                         f'peak{i+1}_amplitude')]
                 for i in range(num_peak)]
-            uniform_fit_amplitudes_vary = [
-                uniform_fit.best_vary[
-                    uniform_fit.best_parameters().index(
+            fit_amplitudes_vary = [
+                fit.best_vary[
+                    fit.best_parameters().index(
                         f'peak{i+1}_amplitude')]
                 for i in range(num_peak)]
-            uniform_fit_sigmas = [
-                uniform_fit.best_values[
-                    uniform_fit.best_parameters().index(f'peak{i+1}_sigma')]
+            fit_sigmas = [
+                fit.best_values[
+                    fit.best_parameters().index(f'peak{i+1}_sigma')]
                 for i in range(num_peak)]
-            uniform_fit_sigmas_errors = [
-                uniform_fit.best_errors[
-                    uniform_fit.best_parameters().index(f'peak{i+1}_sigma')]
+            fit_sigmas_errors = [
+                fit.best_errors[
+                    fit.best_parameters().index(f'peak{i+1}_sigma')]
                 for i in range(num_peak)]
             if detector.peak_models == 'pvoigt':
-                uniform_fit_fractions = [
-                    uniform_fit.best_values[
-                        uniform_fit.best_parameters().index(
+                fit_fractions = [
+                    fit.best_values[
+                        fit.best_parameters().index(
                             f'peak{i+1}_fraction')]
                     for i in range(num_peak)]
-                uniform_fit_fractions_errors = [
-                    uniform_fit.best_errors[
-                        uniform_fit.best_parameters().index(
+                fit_fractions_errors = [
+                    fit.best_errors[
+                        fit.best_parameters().index(
                             f'peak{i+1}_fraction')]
                     for i in range(num_peak)]
-        if not np.asarray(uniform_success).all():
+        if not np.asarray(success).all():
             for n in range(num_peak):
-                uniform_fit_centers[n] = np.where(
-                    uniform_success, uniform_fit_centers[n], peak_locations[n])
-                uniform_fit_centers_errors[n] *= uniform_success
-                uniform_fit_amplitudes[n] *= uniform_success
-                uniform_fit_amplitudes_errors[n] *= uniform_success
-                uniform_fit_sigmas[n] *= uniform_success
-                uniform_fit_sigmas_errors[n] *= uniform_success
+                fit_centers[n] = np.where(
+                    success, fit_centers[n], peak_locations[n])
+                fit_centers_errors[n] *= success
+                fit_amplitudes[n] *= success
+                fit_amplitudes_errors[n] *= success
+                fit_sigmas[n] *= success
+                fit_sigmas_errors[n] *= success
                 if detector.peak_models == 'pvoigt':
-                    uniform_fit_fractions[n] *= uniform_success
-                    uniform_fit_fractions_errors[n] *= uniform_success
+                    fit_fractions[n] *= success
+                    fit_fractions_errors[n] *= success
 
-    if num_peak == 1:
-        uniform_result = {
-            'centers': uniform_fit_centers,
-            'centers_errors': uniform_fit_centers_errors,
-            'amplitudes': uniform_fit_amplitudes,
-            'amplitudes_errors': uniform_fit_amplitudes_errors,
-            'amplitudes_vary': uniform_fit_amplitudes_vary,
-            'sigmas': uniform_fit_sigmas,
-            'sigmas_errors': uniform_fit_sigmas_errors,
-            'best_fits': uniform_fit.best_fit,
-            'residuals': uniform_fit.residual,
-            'redchis': uniform_fit.redchi,
-            'success': uniform_success}
-        if detector.peak_models == 'pvoigt':
-            uniform_result['fractions'] = uniform_fit_fractions
-            uniform_result['fractions_errors'] = uniform_fit_fractions_errors
-        return (uniform_result, uniform_result)
-
-    # Perform unconstrained fit
-    config['models'][-1]['fit_type'] = 'unconstrained'
-    unconstrained_fit = FitProcessor.run(
-        data=[PipelineData(data=uniform_fit)],
-        config=config, **kwargs)
-    unconstrained_success = unconstrained_fit.success
-    if spectra.ndim == 1:
-        if unconstrained_success:
-            unconstrained_fit_centers = [
-                unconstrained_fit.best_values[
-                    f'peak{i+1}_center'] for i in range(num_peak)]
-            unconstrained_fit_centers_errors = [
-                unconstrained_fit.best_errors[
-                    f'peak{i+1}_center'] for i in range(num_peak)]
-            unconstrained_fit_amplitudes = [
-                unconstrained_fit.best_values[
-                    f'peak{i+1}_amplitude'] for i in range(num_peak)]
-            unconstrained_fit_amplitudes_errors = [
-                unconstrained_fit.best_errors[
-                    f'peak{i+1}_amplitude'] for i in range(num_peak)]
-            unconstrained_fit_amplitudes_vary = [
-                unconstrained_fit.best_vary[
-                    f'peak{i+1}_amplitude'] for i in range(num_peak)]
-            unconstrained_fit_sigmas = [
-                unconstrained_fit.best_values[
-                    f'peak{i+1}_sigma'] for i in range(num_peak)]
-            unconstrained_fit_sigmas_errors = [
-                unconstrained_fit.best_errors[
-                    f'peak{i+1}_sigma'] for i in range(num_peak)]
-            if detector.peak_models == 'pvoigt':
-                unconstrained_fit_fractions = [
-                    unconstrained_fit.best_values[
-                        f'peak{i+1}_fraction'] for i in range(num_peak)]
-                unconstrained_fit_fractions_errors = [
-                    unconstrained_fit.best_errors[
-                        f'peak{i+1}_fraction'] for i in range(num_peak)]
-        else:
-            unconstrained_fit_centers = list(peak_locations)
-            unconstrained_fit_centers_errors = [0]
-            unconstrained_fit_amplitudes = [0]
-            unconstrained_fit_amplitudes_errors = [0]
-            unconstrained_fit_amplitudes_vary = [False]
-            unconstrained_fit_sigmas = [0]
-            unconstrained_fit_sigmas_errors = [0]
-            if detector.peak_models == 'pvoigt':
-                unconstrained_fit_fractions = [0]
-                unconstrained_fit_fractions_errors = [0]
-    else:
-        unconstrained_fit_centers = np.array(
-            [unconstrained_fit.best_values[
-                unconstrained_fit.best_parameters().index(f'peak{i+1}_center')]
-             for i in range(num_peak)])
-        unconstrained_fit_centers_errors = np.array(
-            [unconstrained_fit.best_errors[
-                unconstrained_fit.best_parameters().index(f'peak{i+1}_center')]
-             for i in range(num_peak)])
-        unconstrained_fit_amplitudes = [
-            unconstrained_fit.best_values[
-                unconstrained_fit.best_parameters().index(
-                    f'peak{i+1}_amplitude')]
-            for i in range(num_peak)]
-        unconstrained_fit_amplitudes_errors = [
-            unconstrained_fit.best_errors[
-                unconstrained_fit.best_parameters().index(
-                    f'peak{i+1}_amplitude')]
-            for i in range(num_peak)]
-        unconstrained_fit_amplitudes_vary = [
-            unconstrained_fit.best_vary[
-                unconstrained_fit.best_parameters().index(
-                    f'peak{i+1}_amplitude')]
-            for i in range(num_peak)]
-        unconstrained_fit_sigmas = [
-            unconstrained_fit.best_values[
-                unconstrained_fit.best_parameters().index(f'peak{i+1}_sigma')]
-            for i in range(num_peak)]
-        unconstrained_fit_sigmas_errors = [
-            unconstrained_fit.best_errors[
-                unconstrained_fit.best_parameters().index(f'peak{i+1}_sigma')]
-            for i in range(num_peak)]
-        if detector.peak_models == 'pvoigt':
-            unconstrained_fit_fractions = [
-                unconstrained_fit.best_values[
-                    unconstrained_fit.best_parameters().index(
-                        f'peak{i+1}_fraction')]
-                for i in range(num_peak)]
-            unconstrained_fit_fractions_errors = [
-                unconstrained_fit.best_errors[
-                    unconstrained_fit.best_parameters().index(
-                        f'peak{i+1}_fraction')]
-                for i in range(num_peak)]
-        if not np.asarray(unconstrained_success).all():
-            for n in range(num_peak):
-                unconstrained_fit_centers[n] = np.where(
-                    unconstrained_success, unconstrained_fit_centers[n],
-                    peak_locations[n])
-                unconstrained_fit_centers_errors[n] *= unconstrained_success
-                unconstrained_fit_amplitudes[n] *= unconstrained_success
-                unconstrained_fit_amplitudes_errors[n] *= unconstrained_success
-                unconstrained_fit_sigmas[n] *= unconstrained_success
-                unconstrained_fit_sigmas_errors[n] *= unconstrained_success
-                if detector.peak_models == 'pvoigt':
-                    unconstrained_fit_fractions[n] *= unconstrained_success
-                    unconstrained_fit_fractions_errors[n] *= \
-                        unconstrained_success
-
-    uniform_result = {
-        'centers': uniform_fit_centers,
-        'centers_errors': uniform_fit_centers_errors,
-        'amplitudes': uniform_fit_amplitudes,
-        'amplitudes_errors': uniform_fit_amplitudes_errors,
-        'amplitudes_vary': uniform_fit_amplitudes_vary,
-        'sigmas': uniform_fit_sigmas,
-        'sigmas_errors': uniform_fit_sigmas_errors,
-        'best_fits': uniform_fit.best_fit,
-        'residuals': uniform_fit.residual,
-        'redchis': uniform_fit.redchi,
-        'success': uniform_success}
-    unconstrained_result = {
-        'centers': unconstrained_fit_centers,
-        'centers_errors': unconstrained_fit_centers_errors,
-        'amplitudes': unconstrained_fit_amplitudes,
-        'amplitudes_errors': unconstrained_fit_amplitudes_errors,
-        'amplitudes_vary': unconstrained_fit_amplitudes_vary,
-        'sigmas': unconstrained_fit_sigmas,
-        'sigmas_errors': unconstrained_fit_sigmas_errors,
-        'best_fits': unconstrained_fit.best_fit,
-        'residuals': unconstrained_fit.residual,
-        'redchis': unconstrained_fit.redchi,
-        'success': unconstrained_success}
+    result = {
+        'centers': fit_centers,
+        'centers_errors': fit_centers_errors,
+        'amplitudes': fit_amplitudes,
+        'amplitudes_errors': fit_amplitudes_errors,
+        'amplitudes_vary': fit_amplitudes_vary,
+        'sigmas': fit_sigmas,
+        'sigmas_errors': fit_sigmas_errors,
+        'best_fits': fit.best_fit,
+        'residuals': fit.residual,
+        'redchis': fit.redchi,
+        'success': success}
     if detector.peak_models == 'pvoigt':
-        uniform_result['fractions'] = uniform_fit_fractions
-        uniform_result['fractions_errors'] = uniform_fit_fractions_errors
-        unconstrained_result['fractions'] = unconstrained_fit_fractions
-        unconstrained_result['fractions_errors'] = \
-            unconstrained_fit_fractions_errors
-    return (uniform_result, unconstrained_result)
+        result['fractions'] = fit_fractions
+        result['fractions_errors'] = fit_fractions_errors
+    return result
