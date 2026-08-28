@@ -17,6 +17,7 @@ pytestmark = pytest.mark.parametrize('code', ['scipy', 'lmfit'])
 @pytest.fixture(scope="class")
 def setup_constants(request):
     request.cls.CENTERS = (5.0, 10.0, 15.0)
+    request.cls.MASK_RANGE = [8.5, 11.5]
     request.cls.NUM = 101
     request.cls.X = np.array(np.linspace(-1, 1, request.cls.NUM))
     request.cls.XX = np.array(np.linspace(0, 20, request.cls.NUM))
@@ -195,6 +196,42 @@ class TestBaseModels:
                 ],
             },
             log_level='WARNING')
+        assert pytest.approx(result.redchi) == expected
+
+    @pytest.mark.parametrize(
+        'peak_models, expected', [('gaussian',   1.0715054334e-03),
+                                  ('lorentzian', 1.7984234948e-03),
+                                  ('pvoigt',     1.0877211534e-03)])
+    def test_multipeak_mask(self, code, peak_models, expected):
+        random.seed(0)
+        model = PEAK_LIKE_MODELS[peak_models](model_type=peak_models)
+        kwargs = {'fraction': 0.4} if peak_models == 'pvoigt' else {}
+        mask = np.where(
+            (self.XX<self.MASK_RANGE[0]) | (self.XX>self.MASK_RANGE[1]),
+            0, 1).tolist()
+        y = parabolic(self.XX, a=0.002, b=-0.01, c=-0.5)
+        y += self.SIGMA
+        for n, center in enumerate(self.CENTERS):
+            y += model.eval(
+                self.XX, amplitude=2+3*_ran_uni(), center=center+2*_ran_uni(),
+                sigma=0.5+0.2*_ran_uni(), **kwargs)
+        result = FitProcessor.run(
+            data=_create_pipelinedata(self.XX, y),
+            config={
+                'code': code,
+                'mask': mask,
+                'models': [
+                    QuadraticModel(model_type='parabolic'),
+                    MultipeakModel(
+                        model_type='multipeak',
+                        centers=[c for c in self.CENTERS
+                                 if (c < self.MASK_RANGE[0]
+                                     or c > self.MASK_RANGE[1])],
+                        peak_models=peak_models),
+                ],
+            },
+            log_level='WARNING')
+        print(f'\n\nresult.redchi for {peak_models}: {result.redchi}\n\n')
         assert pytest.approx(result.redchi) == expected
 
     def test_expression1(self, code):
