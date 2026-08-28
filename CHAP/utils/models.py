@@ -1103,6 +1103,8 @@ class FitConfig(CHAPBaseModel):
     :ivar code: Specifies is lmfit is used to perform the fit or if
         the scipy fit method is called directly, default to `'lmfit'`.
     :vartype code: Literal['lmfit', 'scipy'], optional
+    :ivar mask: Mask to apply to the data during fitting.
+    :vartype mask: list[bool], optional
     :ivar max_nfev: Maximum number of function evaluations in the
         the strain analysis peak fitting routine.
     :vartype max_nfev: int, optional
@@ -1138,6 +1140,7 @@ class FitConfig(CHAPBaseModel):
 
     abs_height_cutoff: Optional[conint(gt=0)] = None
     code: Literal['lmfit', 'scipy'] = 'scipy'
+    mask: Optional[conlist(item_type=bool)] = None
     max_nfev: Optional[conint(gt=0)] = None
     memfolder: str = 'joblib_memmap'
     method: Literal[

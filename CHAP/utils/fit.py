@@ -169,7 +169,9 @@ class FitProcessor(Processor):
         if isinstance(data, (Fit, FitMap)):
             # Refit/continue the fit with possibly updated parameters
             fit = data
-            fit.fit(config=self.config, max_nfev=self.config.max_nfev)
+            fit.fit(
+                config=self.config, mask=self.config.mask,
+                max_nfev=self.config.max_nfev)
             if self.config is not None and not isinstance(data, FitMap):
                 if self.config.print_report:
                     fit.print_fit_report()
@@ -199,7 +201,7 @@ class FitProcessor(Processor):
             # Instantiate the Fit or FitMap object and fit the data
             if np.squeeze(data[1]).ndim == 1:
                 fit = Fit(data[1], self.config, self.logger, x=data[0])
-                fit.fit(max_nfev=self.config.max_nfev)
+                fit.fit(mask=self.config.mask, max_nfev=self.config.max_nfev)
                 if self.config.print_report:
                     fit.print_fit_report()
                 if self.config.plot:
@@ -208,6 +210,7 @@ class FitProcessor(Processor):
                 fit = FitMap(data[1], self.config, self.logger, x=data[0])
                 fit.fit(
                     abs_height_cutoff=self.config.abs_height_cutoff,
+                    mask=self.config.mask,
                     max_nfev=self.config.max_nfev,
                     multipeak_info=multipeak_info,
                     num_proc=self.config.num_proc,
@@ -1355,7 +1358,8 @@ class Fit:
         :type plot_comp_legends: bool, optional
         :param plot_residual: Plot the residual, defaults to `False`.
         :type plot_residual: bool, optional
-        :param plot_masked_data:
+        :param plot_masked_data: Visually distinguish the masked from
+            the unmasked data, defaults to `True`.
         :type plot_masked_data: bool, optional
         :param **kwargs: Additional key, value pairs to pass on
             directly to the Matplotlib plot function.
@@ -1395,11 +1399,14 @@ class Fit:
             plots += [(x, y, '.')]
             legend += [y_title]
         if self._y is not None:
-            plots += [(x, np.asarray(self._y), 'b.')]
-            legend += ['data']
             if plot_masked_data:
+                plots += [(x[~mask], np.asarray(self._y)[~mask], 'b.')]
+                legend += ['data']
                 plots += [(x[mask], np.asarray(self._y)[mask], 'bx')]
                 legend += ['masked data']
+            else:
+                plots += [(x, np.asarray(self._y), 'b.')]
+                legend += ['data']
         if isinstance(plot_residual, bool) and plot_residual:
             plots += [(x[~mask], result.residual, 'r-')]
             legend += ['residual']
@@ -1624,7 +1631,6 @@ class Fit:
 
         # Apply mask if supplied:
         if self._mask is not None:
-            raise RuntimeError('mask needs testing')
             self._mask = np.asarray(self._mask).astype(bool)
             if self._x.size != self._mask.size:
                 raise ValueError(
@@ -2015,8 +2021,6 @@ class Fit:
             x = x[~self._mask]
             y = np.asarray(y)[~self._mask]
         if self._code == 'scipy':
-            #FIX mask not implemented and tested
-            assert self._mask is None
             return _fit_scipy(x, y, have_bounds, **kwargs)
 #        fit_kws = {}
 #        if 'Dfun' in kwargs:
@@ -2738,7 +2742,8 @@ class FitMap(Fit):
         :type plot_comp_legends: bool, optional
         :param plot_residual: Plot the residual, defaults to `False`.
         :type plot_residual: bool, optional
-        :param plot_masked_data:
+        :param plot_masked_data: Visually distinguish the masked from
+            the unmasked data, defaults to `True`.
         :type plot_masked_data: bool, optional
         :param **kwargs: Additional key, value pairs to pass on
             directly to the Matplotlib plot function.
@@ -2774,12 +2779,14 @@ class FitMap(Fit):
             plot_masked_data = False
         else:
             mask = self._mask
-        plots = [(x, np.asarray(self._ymap[dims]), 'b.')]
-        legend = [y_title]
         if plot_masked_data:
-            plots += \
-                [(x[mask], np.asarray(self._ymap)[(*dims,mask)], 'bx')]
+            plots = [(x[~mask], np.asarray(self._ymap[dims])[~mask], 'b.')]
+            legend = [y_title]
+            plots += [(x[mask], np.asarray(self._ymap[dims])[mask], 'bx')]
             legend += ['masked data']
+        else:
+            plots = [(x, np.asarray(self._ymap[dims]), 'b.')]
+            legend = [y_title]
         plots += [(x[~mask], self.best_fit[dims], 'k-')]
         legend += ['best fit']
         if plot_residual:
@@ -2827,6 +2834,7 @@ class FitMap(Fit):
         if config is None:
             num_proc = kwargs.pop('num_proc', num_proc_max)
             self._abs_height_cutoff = kwargs.pop('abs_height_cutoff')
+            self._mask = kwargs.pop('mask', None)
             self._multipeak_info = kwargs.pop('multipeak_info', None)
             self._plot = kwargs.pop('plot', False)
             self._print_report = kwargs.pop('print_report', False)
@@ -2837,6 +2845,7 @@ class FitMap(Fit):
         else:
             num_proc = config.num_proc
             self._abs_height_cutoff = config.abs_height_cutoff
+            self._mask = config.mask
             self._plot = config.plot
             self._print_report = config.print_report
 #            self._redchi_cutoff = config.redchi_cutoff
