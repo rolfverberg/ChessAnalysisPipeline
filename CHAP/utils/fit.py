@@ -128,22 +128,29 @@ class FitProcessor(Processor):
             raise ValueError(
                 f'Unable to extract suitable fit input data from {data}')
 
-        # Retrieve the optional coordinates from the pipeline
+        # Retrieve the optional coordinates and mask from the pipeline
+        x = None
+        mask = None
         try:
             y = np.asarray(ddata)
             for i, d in reversed(list(enumerate(data))):
-                if d.get('name') == 'coordinates':
+                name = d.get('name')
+                if name == 'coordinates':
                     x = np.asarray(d.get('data'))
                     if remove:
                         data.pop(i)
                     assert x.size == y.shape[-1]
+                elif name == 'mask':
+                    mask = np.asarray(d.get('data'))
+                    if remove:
+                        data.pop(i)
+                    assert mask.size == y.shape[-1]
+                if x is not None and mask is not None:
                     break
-            else:
-                x = None
         except (ValueError, TypeError) as exc:
             raise ValueError(
                 f'Unable to extract suitable fit input data from {data}')
-        return x, y
+        return x, y, mask
 
     def process(self, data):
         """Fit the data and return a :class:`~CHAP.utils.fit.Fit` or
@@ -169,9 +176,7 @@ class FitProcessor(Processor):
         if isinstance(data, (Fit, FitMap)):
             # Refit/continue the fit with possibly updated parameters
             fit = data
-            fit.fit(
-                config=self.config, mask=self.config.mask,
-                max_nfev=self.config.max_nfev)
+            fit.fit(config=self.config, max_nfev=self.config.max_nfev)
             if self.config is not None and not isinstance(data, FitMap):
                 if self.config.print_report:
                     fit.print_fit_report()
@@ -200,17 +205,18 @@ class FitProcessor(Processor):
 
             # Instantiate the Fit or FitMap object and fit the data
             if np.squeeze(data[1]).ndim == 1:
-                fit = Fit(data[1], self.config, self.logger, x=data[0])
-                fit.fit(mask=self.config.mask, max_nfev=self.config.max_nfev)
+                fit = Fit(
+                    data[1], self.config, self.logger, x=data[0], mask=data[2])
+                fit.fit(max_nfev=self.config.max_nfev)
                 if self.config.print_report:
                     fit.print_fit_report()
                 if self.config.plot:
                     fit.plot(skip_init=True)
             else:
-                fit = FitMap(data[1], self.config, self.logger, x=data[0])
+                fit = FitMap(
+                    data[1], self.config, self.logger, x=data[0], mask=data[2])
                 fit.fit(
                     abs_height_cutoff=self.config.abs_height_cutoff,
-                    mask=self.config.mask,
                     max_nfev=self.config.max_nfev,
                     multipeak_info=multipeak_info,
                     num_proc=self.config.num_proc,
@@ -715,7 +721,7 @@ class ModelResult():
 class Fit:
     """Wrapper class for scipy/lmfit."""
 
-    def __init__(self, y, config, logger, x=None):
+    def __init__(self, y, config, logger, x=None, mask=None):
         """Initialize Fit.
 
         :param y: Input signal data.
@@ -740,7 +746,7 @@ class Fit:
             # Third party modules
             from lmfit import Parameters
         self._logger = logger
-        self._mask = None
+        self._mask = mask
         self._method = config.method
         self._model = None
         self._norm = None
@@ -783,9 +789,6 @@ class Fit:
                 self._x = np.arange(self._y.size)
             else:
                 self._x = x
-                assert self._x.size == self._y.size
-#            if 'mask' in kwargs:
-#                self._mask = kwargs.pop('mask')
             if True: #self._mask is None:
                 y_min = float(self._y.min())
                 self._y_range = float(self._y.max())-y_min
@@ -1272,7 +1275,6 @@ class Fit:
         if self._model is None:
             self._logger.error('Undefined fit model')
             return None
-        self._mask = kwargs.pop('mask', None)
 #        if 'try_linear_fit' in kwargs:
 #            raise RuntimeError('try_linear_fit needs testing')
 #            try_linear_fit = kwargs.pop('try_linear_fit')
@@ -1396,8 +1398,14 @@ class Fit:
         if y is not None:
             if y_title is None or not isinstance(y_title, str):
                 y_title = 'data'
-            plots += [(x, y, '.')]
-            legend += [y_title]
+            if plot_masked_data:
+                plots += [(x[~mask], np.asarray(y)[~mask], 'b.')]
+                legend += [y_title]
+                plots += [(x[mask], np.asarray(y)[mask], 'bx')]
+                legend += ['masked data']
+            else:
+                plots += [(x, y, 'b.')]
+                legend += [y_title]
         if self._y is not None:
             if plot_masked_data:
                 plots += [(x[~mask], np.asarray(self._y)[~mask], 'b.')]
@@ -1628,14 +1636,6 @@ class Fit:
                         f'Invalid "expr" key in {name} parameter {par}')
                 ppar.set(
                     value=value, min=par.min, max=par.max, vary=par.vary)
-
-        # Apply mask if supplied:
-        if self._mask is not None:
-            self._mask = np.asarray(self._mask).astype(bool)
-            if self._x.size != self._mask.size:
-                raise ValueError(
-                    f'Inconsistent x and mask dimensions ({self._x.size} vs '
-                    f'{self._mask.size})')
 
         # Add constant offset for a normalized model
         if self._result is None and self._norm is not None and self._norm[0]:
@@ -2370,7 +2370,7 @@ class UpdateValuesProcessor(Processor):
 class FitMap(Fit):
     """Wrapper to the Fit class to fit data on a N-dimensional map."""
 
-    def __init__(self, y, config, logger, x=None):
+    def __init__(self, y, config, logger, x=None, mask=None):
         """Initialize FitMap.
 
         :param y: Input signal data.
@@ -2391,6 +2391,7 @@ class FitMap(Fit):
         self._best_vary = None
         self._init_values = None
         self._inv_transpose = None
+        self._mask = mask
         self._max_nfev = None
         self._memfolder = config.memfolder
         self._multipeak_info = None
@@ -2414,7 +2415,6 @@ class FitMap(Fit):
             self._x = np.arange(self._ymap.shape[-1])
         else:
             self._x = x
-            assert self._x.size == self._ymap.shape[-1]
 
         # Flatten the map
         # Store the flattened map in self._ymap_norm
@@ -2424,8 +2424,6 @@ class FitMap(Fit):
             self._ymap, (self._map_dim, self._x.size))
 
         # Check if a mask is provided
-#        if 'mask' in kwargs:
-#            self._mask = kwargs.pop('mask')
         if True: #self._mask is None:
             ymap_min = float(self._ymap_norm.min())
             ymap_max = float(self._ymap_norm.max())
@@ -2834,7 +2832,6 @@ class FitMap(Fit):
         if config is None:
             num_proc = kwargs.pop('num_proc', num_proc_max)
             self._abs_height_cutoff = kwargs.pop('abs_height_cutoff')
-            self._mask = kwargs.pop('mask', None)
             self._multipeak_info = kwargs.pop('multipeak_info', None)
             self._plot = kwargs.pop('plot', False)
             self._print_report = kwargs.pop('print_report', False)
@@ -2845,7 +2842,6 @@ class FitMap(Fit):
         else:
             num_proc = config.num_proc
             self._abs_height_cutoff = config.abs_height_cutoff
-            self._mask = config.mask
             self._plot = config.plot
             self._print_report = config.print_report
 #            self._redchi_cutoff = config.redchi_cutoff
