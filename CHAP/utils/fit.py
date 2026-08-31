@@ -128,22 +128,29 @@ class FitProcessor(Processor):
             raise ValueError(
                 f'Unable to extract suitable fit input data from {data}')
 
-        # Retrieve the optional coordinates from the pipeline
+        # Retrieve the optional coordinates and mask from the pipeline
+        x = None
+        mask = None
         try:
             y = np.asarray(ddata)
             for i, d in reversed(list(enumerate(data))):
-                if d.get('name') == 'coordinates':
+                name = d.get('name')
+                if name == 'coordinates':
                     x = np.asarray(d.get('data'))
                     if remove:
                         data.pop(i)
                     assert x.size == y.shape[-1]
+                elif name == 'mask':
+                    mask = np.asarray(d.get('data'))
+                    if remove:
+                        data.pop(i)
+                    assert mask.size == y.shape[-1]
+                if x is not None and mask is not None:
                     break
-            else:
-                x = None
         except (ValueError, TypeError) as exc:
             raise ValueError(
                 f'Unable to extract suitable fit input data from {data}')
-        return x, y
+        return x, y, mask
 
     def process(self, data):
         """Fit the data and return a :class:`~CHAP.utils.fit.Fit` or
@@ -198,14 +205,16 @@ class FitProcessor(Processor):
 
             # Instantiate the Fit or FitMap object and fit the data
             if np.squeeze(data[1]).ndim == 1:
-                fit = Fit(data[1], self.config, self.logger, x=data[0])
+                fit = Fit(
+                    data[1], self.config, self.logger, x=data[0], mask=data[2])
                 fit.fit(max_nfev=self.config.max_nfev)
                 if self.config.print_report:
                     fit.print_fit_report()
                 if self.config.plot:
                     fit.plot(skip_init=True)
             else:
-                fit = FitMap(data[1], self.config, self.logger, x=data[0])
+                fit = FitMap(
+                    data[1], self.config, self.logger, x=data[0], mask=data[2])
                 fit.fit(
                     abs_height_cutoff=self.config.abs_height_cutoff,
                     max_nfev=self.config.max_nfev,
@@ -712,7 +721,7 @@ class ModelResult():
 class Fit:
     """Wrapper class for scipy/lmfit."""
 
-    def __init__(self, y, config, logger, x=None):
+    def __init__(self, y, config, logger, x=None, mask=None):
         """Initialize Fit.
 
         :param y: Input signal data.
@@ -737,7 +746,7 @@ class Fit:
             # Third party modules
             from lmfit import Parameters
         self._logger = logger
-        self._mask = None
+        self._mask = mask
         self._method = config.method
         self._model = None
         self._norm = None
@@ -780,9 +789,6 @@ class Fit:
                 self._x = np.arange(self._y.size)
             else:
                 self._x = x
-                assert self._x.size == self._y.size
-#            if 'mask' in kwargs:
-#                self._mask = kwargs.pop('mask')
             if True: #self._mask is None:
                 y_min = float(self._y.min())
                 self._y_range = float(self._y.max())-y_min
@@ -1269,7 +1275,6 @@ class Fit:
         if self._model is None:
             self._logger.error('Undefined fit model')
             return None
-        self._mask = kwargs.pop('mask', None)
 #        if 'try_linear_fit' in kwargs:
 #            raise RuntimeError('try_linear_fit needs testing')
 #            try_linear_fit = kwargs.pop('try_linear_fit')
@@ -1355,7 +1360,8 @@ class Fit:
         :type plot_comp_legends: bool, optional
         :param plot_residual: Plot the residual, defaults to `False`.
         :type plot_residual: bool, optional
-        :param plot_masked_data:
+        :param plot_masked_data: Visually distinguish the masked from
+            the unmasked data, defaults to `True`.
         :type plot_masked_data: bool, optional
         :param **kwargs: Additional key, value pairs to pass on
             directly to the Matplotlib plot function.
@@ -1392,14 +1398,23 @@ class Fit:
         if y is not None:
             if y_title is None or not isinstance(y_title, str):
                 y_title = 'data'
-            plots += [(x, y, '.')]
-            legend += [y_title]
-        if self._y is not None:
-            plots += [(x, np.asarray(self._y), 'b.')]
-            legend += ['data']
             if plot_masked_data:
+                plots += [(x[~mask], np.asarray(y)[~mask], 'b.')]
+                legend += [y_title]
+                plots += [(x[mask], np.asarray(y)[mask], 'bx')]
+                legend += ['masked data']
+            else:
+                plots += [(x, y, 'b.')]
+                legend += [y_title]
+        if self._y is not None:
+            if plot_masked_data:
+                plots += [(x[~mask], np.asarray(self._y)[~mask], 'b.')]
+                legend += ['data']
                 plots += [(x[mask], np.asarray(self._y)[mask], 'bx')]
                 legend += ['masked data']
+            else:
+                plots += [(x, np.asarray(self._y), 'b.')]
+                legend += ['data']
         if isinstance(plot_residual, bool) and plot_residual:
             plots += [(x[~mask], result.residual, 'r-')]
             legend += ['residual']
@@ -1621,15 +1636,6 @@ class Fit:
                         f'Invalid "expr" key in {name} parameter {par}')
                 ppar.set(
                     value=value, min=par.min, max=par.max, vary=par.vary)
-
-        # Apply mask if supplied:
-        if self._mask is not None:
-            raise RuntimeError('mask needs testing')
-            self._mask = np.asarray(self._mask).astype(bool)
-            if self._x.size != self._mask.size:
-                raise ValueError(
-                    f'Inconsistent x and mask dimensions ({self._x.size} vs '
-                    f'{self._mask.size})')
 
         # Add constant offset for a normalized model
         if self._result is None and self._norm is not None and self._norm[0]:
@@ -2015,8 +2021,6 @@ class Fit:
             x = x[~self._mask]
             y = np.asarray(y)[~self._mask]
         if self._code == 'scipy':
-            #FIX mask not implemented and tested
-            assert self._mask is None
             return _fit_scipy(x, y, have_bounds, **kwargs)
 #        fit_kws = {}
 #        if 'Dfun' in kwargs:
@@ -2366,7 +2370,7 @@ class UpdateValuesProcessor(Processor):
 class FitMap(Fit):
     """Wrapper to the Fit class to fit data on a N-dimensional map."""
 
-    def __init__(self, y, config, logger, x=None):
+    def __init__(self, y, config, logger, x=None, mask=None):
         """Initialize FitMap.
 
         :param y: Input signal data.
@@ -2387,6 +2391,7 @@ class FitMap(Fit):
         self._best_vary = None
         self._init_values = None
         self._inv_transpose = None
+        self._mask = mask
         self._max_nfev = None
         self._memfolder = config.memfolder
         self._multipeak_info = None
@@ -2410,7 +2415,6 @@ class FitMap(Fit):
             self._x = np.arange(self._ymap.shape[-1])
         else:
             self._x = x
-            assert self._x.size == self._ymap.shape[-1]
 
         # Flatten the map
         # Store the flattened map in self._ymap_norm
@@ -2420,8 +2424,6 @@ class FitMap(Fit):
             self._ymap, (self._map_dim, self._x.size))
 
         # Check if a mask is provided
-#        if 'mask' in kwargs:
-#            self._mask = kwargs.pop('mask')
         if True: #self._mask is None:
             ymap_min = float(self._ymap_norm.min())
             ymap_max = float(self._ymap_norm.max())
@@ -2738,7 +2740,8 @@ class FitMap(Fit):
         :type plot_comp_legends: bool, optional
         :param plot_residual: Plot the residual, defaults to `False`.
         :type plot_residual: bool, optional
-        :param plot_masked_data:
+        :param plot_masked_data: Visually distinguish the masked from
+            the unmasked data, defaults to `True`.
         :type plot_masked_data: bool, optional
         :param **kwargs: Additional key, value pairs to pass on
             directly to the Matplotlib plot function.
@@ -2774,12 +2777,14 @@ class FitMap(Fit):
             plot_masked_data = False
         else:
             mask = self._mask
-        plots = [(x, np.asarray(self._ymap[dims]), 'b.')]
-        legend = [y_title]
         if plot_masked_data:
-            plots += \
-                [(x[mask], np.asarray(self._ymap)[(*dims,mask)], 'bx')]
+            plots = [(x[~mask], np.asarray(self._ymap[dims])[~mask], 'b.')]
+            legend = [y_title]
+            plots += [(x[mask], np.asarray(self._ymap[dims])[mask], 'bx')]
             legend += ['masked data']
+        else:
+            plots = [(x, np.asarray(self._ymap[dims]), 'b.')]
+            legend = [y_title]
         plots += [(x[~mask], self.best_fit[dims], 'k-')]
         legend += ['best fit']
         if plot_residual:
