@@ -594,7 +594,6 @@ class DiffractionVolumeLengthProcessor(_BaseEddProcessor):
                         if k not in detector.attrs:
                             detector.attrs[k] = np.asarray(v) \
                                 if isinstance(v, list) else v
-                    detector.get_energy_mask_ranges() is None
                     detectors.append(detector)
                 else:
                     skipped_detectors.append(detector.get_id())

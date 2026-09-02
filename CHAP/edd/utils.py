@@ -1474,7 +1474,8 @@ def get_spectra_fits(
                             f'peak{i+1}_fraction')]
                     for i in range(num_peak)]
         if not np.asarray(success).all():
-            fit_strain *= success
+            if fit_type == 'uniform':
+                fit_strain *= success
             for n in range(num_peak):
                 fit_centers[n] = np.where(
                     success, fit_centers[n], peak_locations[n])

@@ -210,7 +210,7 @@ class FitConfig(CHAPBaseModel):
         :return: Validated configuration class.
         :rtype: FitConfig
         """
-        if None in (self.energy_mask_ranges, self.mask_ranges):
+        if None not in (self.energy_mask_ranges, self.mask_ranges):
             raise ValueError(
                 'Specify either energy_mask_ranges or mask_ranges, not both')
         return self
