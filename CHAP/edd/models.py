@@ -108,7 +108,8 @@ class FitConfig(CHAPBaseModel):
     :vartype fwhm_max: float, optional
     :ivar mask_ranges: MCA channel bin ranges for selecting the data
         to be included in the energy calibration after applying a mask
-        (bounds are inclusive). Specify for energy calibration only.
+        (lower bounds are inclusive, upper bounds not). Specify for
+        energy calibration only.
     :vartype mask_ranges: list[[int, int]], optional
     :ivar backgroundpeaks: Additional background peaks (their
         associated fit parameters in units of keV).
@@ -171,7 +172,8 @@ class FitConfig(CHAPBaseModel):
     @field_validator('energy_mask_ranges', mode='before')
     @classmethod
     def validate_energy_mask_ranges(cls, energy_mask_ranges):
-        """Validate the mask ranges for selecting the data to include.
+        """Validate the energy mask ranges for selecting the data to
+        include.
 
         :param energy_mask_ranges: MCA energy mask ranges in keV for
             selecting the data to be included after applying a mask
@@ -190,8 +192,8 @@ class FitConfig(CHAPBaseModel):
         """Validate the mask ranges for selecting the data to include.
 
         :param mask_ranges: MCA channel bin ranges for selecting the
-            data to be included after applying a mask (bounds are
-            inclusive).
+            data to be included after applying a mask (lower bounds are
+            inclusive, upper bounds are not).
         :type mask_ranges: list[[int, int]], optional
         :return: Validated mask ranges.
         :rtype: list[[int, int]]
@@ -199,6 +201,19 @@ class FitConfig(CHAPBaseModel):
         if mask_ranges:
             return sorted([sorted(v) for v in mask_ranges])
         return mask_ranges
+
+    @model_validator(mode='after')
+    def validate_fitconfig_after(self):
+        """Assert that either energy mask ranges or mask ranges for
+        selecting the data to include are specified.
+
+        :return: Validated configuration class.
+        :rtype: FitConfig
+        """
+        if None in (self.energy_mask_ranges, self.mask_ranges):
+            raise ValueError(
+                'Specify either energy_mask_ranges or mask_ranges, not both')
+        return self
 
 
 # Material configuration class
@@ -298,21 +313,15 @@ class MCADetectorCalibration(Detector, FitConfig):
             item_type=conint(ge=0))) = PrivateAttr()
     _hkl_indices: list = PrivateAttr()
 
-#    def add_calibration(self, calibration):
-#        """Finalize values for some fields using a calibration
-#        MCADetectorCalibration corresponding to the same detector.
-#
-#        :param calibration: Existing calibration configuration.
-#        :type calibration: MCADetectorCalibration
-#        """
-#        raise RuntimeError('To do')
-#        for field in ['energy_calibration_coeffs', 'num_bins',
-#                      '_energy_calibration_mask_ranges']:
-#            setattr(self, field, deepcopy(getattr(calibration, field)))
-#        if self.tth_calibrated is not None:
-#            self.logger.warning(
-#                'Ignoring tth_calibrated in calibration configuration')
-#            self.tth_calibrated = None
+    @model_validator(mode='after')
+    def validate_mcadetectorcalibration_after(self):
+        """Set the energy calibration mask ranges private attribute
+        equal to the mask ranges from the energy calibration.
+        """
+        if self.mask_ranges is not None:
+            self._energy_calibration_mask_ranges = self.mask_ranges
+            self.mask_ranges = None
+        return self
 
     @property
     def energies(self):
@@ -325,11 +334,30 @@ class MCADetectorCalibration(Detector, FitConfig):
         return (a*channel_bins + b)*channel_bins + c
 
     @property
+    def energy_calibration_mask_ranges(self):
+        """Return the energy calibration mask ranges.
+
+        :type: list[[int, int]]
+        """
+        if hasattr(self, '_energy_calibration_mask_ranges'):
+            return self._energy_calibration_mask_ranges
+        return None
+
+#    @energy_calibration_mask_ranges.setter
+#    def energy_calibration_mask_ranges(self, mask_ranges):
+#        """Set the energy calibration mask ranges.
+#
+#        :param mask_ranges: MCA bin mask ranges.
+#        :type: list[[int, int]]
+#        """
+#        self._energy_calibration_mask_ranges = deepcopy(mask_ranges)
+
+    @property
     def hkl_indices(self):
         """Return the HKL indices consistent with the selected energy
-        ranges (include_energy_ranges).
+        ranges.
 
-        :type: list
+        :type: list[int]
         """
         if hasattr(self, '_hkl_indices'):
             return self._hkl_indices
@@ -342,68 +370,72 @@ class MCADetectorCalibration(Detector, FitConfig):
         :param hkl_indices: HKL indices.
         :type: list
         """
-        self._hkl_indices = hkl_indices
+        self._hkl_indices = deepcopy(hkl_indices)
 
-    def convert_mask_ranges(self, mask_ranges):
-        """Given a list of mask ranges in channel bins, set the
-        corresponding list of channel energy mask ranges.
+    @property
+    def mask(self):
+        """Return the boolean mask array to use on this MCA element's
+        data. Lower bounds of the mask ranges are inclusive, upper
+        bounds not.
 
-        :param mask_ranges: Mask ranges to convert to energy mask
-            ranges.
-        :type mask_ranges: list[[int, int]]
-        """
-        energies = self.energies
-        self.energy_mask_ranges = [
-            [float(energies[i]) for i in range_]
-             for range_ in sorted([sorted(v) for v in mask_ranges])]
-
-    def get_mask_ranges(self):
-        """Return the list of mask ranges if set or convert the
-        energy mask ranges from channel energies to channel indices
-        and return those.
-
-        :type: list[[float, float]]
-        """
-        if self.mask_ranges:
-            return self.mask_ranges
-        if self.energy_mask_ranges is None:
-            return None
-
-        # Local modules
-        from CHAP.utils.general import (
-            index_nearest_down,
-            index_nearest_up,
-        )
-
-        mask_ranges = []
-        energies = self.energies
-        for e_min, e_max in self.energy_mask_ranges:
-            mask_ranges.append(
-                [index_nearest_down(energies, e_min),
-                 index_nearest_up(energies, e_max)])
-        return mask_ranges
-
-    def mca_mask(self):
-        """Get a boolean mask array to use on this MCA element's data.
-        Note that the bounds of the mask ranges are inclusive.
-
-        :return: Boolean mask array.
-        :rtype: numpy.ndarray
+        :type: numpy.ndarray
         """
         mask = np.asarray([False] * self.num_bins)
         mask_ranges = self.get_mask_ranges()
+        if mask_ranges is None:
+            return mask
         channel_bins = np.arange(self.num_bins, dtype=np.int32)
         for (min_, max_) in mask_ranges:
             mask = np.logical_or(
                 mask,
-                np.logical_and(channel_bins >= min_, channel_bins <= max_))
+                np.logical_and(channel_bins >= min_, channel_bins < max_))
         return mask
 
-    def set_energy_calibration_mask_ranges(self):
-        """Set the value of the private attribite
-        `_energy_calibration_mask_ranges` to value of `mask_ranges`.
+    def get_energy_mask_ranges(self):
+        """Return the list of channel energy mask ranges, bounds are
+        inclusive.
+
+        return: Channel energy mask ranges, bounds are inclusive).
+        :rtype: list[[float, float]]
         """
-        self._energy_calibration_mask_ranges = deepcopy(self.mask_ranges)
+        if self.mask_ranges is None:
+            self.get_mask_ranges()
+
+        energies = self.energies
+        self.energy_mask_ranges = [
+            [energies[range_[0]], energies[range_[1] - 1]]
+             for range_ in self.mask_ranges]
+        return self.energy_mask_ranges
+
+    def get_mask_ranges(self):
+        """Return the list of mask ranges if set or convert the
+        energy mask ranges from channel energies to channel indices
+        and return those. Lower bounds are inclusive, upper bounds not.
+
+        :return: Channel bin mask ranges, lower bounds are inclusive,
+            upper bounds not.
+        :rtype: list[[int, int]]
+        """
+        # Local modules
+        from CHAP.utils.general import index_nearest_down
+
+        if self.mask_ranges is not None:
+            self.get_energy_mask_ranges()
+            return self.mask_ranges
+        if self.energy_mask_ranges is None:
+            return None
+
+        self.mask_ranges = []
+        energies = self.energies
+        for n, (e_min, e_max) in enumerate(self.energy_mask_ranges):
+            low = index_nearest_down(energies, e_min)
+            if n:
+                low = max(self.mask_ranges[n-1][0], low)
+            upp = 1 + index_nearest_down(energies, e_max)
+            self.mask_ranges.append([low, upp])
+        if not self.mask_ranges:
+            return None
+        return self.mask_ranges
 
 
 class MCADetectorDiffractionVolumeLength(MCADetectorCalibration):
@@ -488,13 +520,6 @@ class MCADetectorStrainAnalysis(MCADetectorCalibration):
 #    tth_file: Optional[FilePath] = None
     tth_map: Optional[np.ndarray] = None
 
-    _calibration_energy_mask_ranges: conlist(
-        min_length=1,
-        item_type=conlist(
-            min_length=2,
-            max_length=2,
-            item_type=confloat(allow_inf_nan=False))) = PrivateAttr()
-
     @field_validator('peak_models')
     @classmethod
     def validate_peak_models(cls, peak_models):
@@ -526,33 +551,11 @@ class MCADetectorStrainAnalysis(MCADetectorCalibration):
         for field in ['energy_calibration_coeffs', 'num_bins',
                       'tth_calibrated']:
             setattr(self, field, deepcopy(getattr(calibration, field)))
-        if self.energy_mask_ranges is None:
-            self.energy_mask_ranges = deepcopy(calibration.energy_mask_ranges)
-        self._calibration_energy_mask_ranges = deepcopy(
-            calibration.energy_mask_ranges)
-
-    def get_calibration_mask_ranges(self):
-        """Return the MCA channel bin ranges for the data used during
-        the 2&theta calibration.
-
-        :type: list[[int, int]]
-        """
-        if not hasattr(self, '_calibration_energy_mask_ranges'):
-            return None
-
-        # Local modules
-        from CHAP.utils.general import (
-            index_nearest_down,
-            index_nearest_up,
-        )
-
-        energy_mask_ranges = []
-        energies = self.energies
-        for e_min, e_max in self._calibration_energy_mask_ranges:
-            energy_mask_ranges.append(
-                [index_nearest_down(energies, e_min),
-                 index_nearest_up(energies, e_max)])
-        return energy_mask_ranges
+        mask_ranges = self.get_mask_ranges()
+        if mask_ranges is None:
+            self.mask_ranges = deepcopy(calibration.get_mask_ranges())
+        self._energy_calibration_mask_ranges = deepcopy(
+            calibration.get_mask_ranges())
 
     def get_tth_map(self, map_shape):
         """Return the map of 2&theta values to use -- may vary at each
@@ -698,9 +701,6 @@ class MCACalibrationConfig(CHAPBaseModel):
     """Base class configuration for energy and 2&theta calibration
     processors.
 
-    :ivar flux_file: File name of the csv flux file containing station
-        beam energy in eV (column 0) versus flux (column 1).
-    :vartype flux_file: str, optional
     :ivar materials: Material configurations for the calibration,
         defaults to [`Ceria`].
     :vartype materials: list[MaterialConfig], optional
@@ -717,7 +717,6 @@ class MCACalibrationConfig(CHAPBaseModel):
        https://physics.nist.gov/PhysRefData/XrayTrans/Html/search.html
     """
 
-    flux_file: Optional[FilePath] = None
     materials: Optional[conlist(item_type=MaterialConfig)] = [MaterialConfig(
         material_name='CeO2', lattice_parameters=5.41153, sgnum=225)]
     peak_energies: Optional[conlist(
@@ -725,27 +724,6 @@ class MCACalibrationConfig(CHAPBaseModel):
             34.279, 34.720, 39.258, 40.233]
     scan_step_indices: Optional[
         conlist(min_length=1, item_type=conint(ge=0))] = None
-
-    @model_validator(mode='before')
-    @classmethod
-    def validate_mcacalibrationconfig_before(cls, data):
-        """Ensure that a valid configuration was provided and finalize
-        flux_file filepath.
-
-        :param data:
-            `Pydantic <https://github.com/pydantic/pydantic>`__
-            validator data object.
-        :type data: dict
-        :return: Currently validated class attributes.
-        :rtype: dict
-        """
-        if isinstance(data, dict):
-            inputdir = data.get('inputdir')
-            if inputdir is not None:
-                flux_file = data.get('flux_file')
-                if flux_file is not None and not os.path.isabs(flux_file):
-                    data['flux_file'] = os.path.join(inputdir, flux_file)
-        return data
 
     @field_validator('scan_step_indices', mode='before')
     @classmethod
@@ -768,31 +746,6 @@ class MCACalibrationConfig(CHAPBaseModel):
 
             scan_step_indices = string_to_list(scan_step_indices)
         return scan_step_indices
-
-    def flux_file_energy_range(self):
-        """Get the energy range in the flux correction file.
-
-        :type: tuple(float, float)
-        """
-        if self.flux_file is None:
-            return None
-        flux = np.loadtxt(self.flux_file)
-        energies = flux[:,0]/1.e3
-        return energies.min(), energies.max()
-
-    def flux_correction_interpolation_function(self):
-        """Get an interpolation function to correct MCA data for the
-        relative energy flux of the incident beam.
-
-        :type: scipy.interpolate._polyint._Interpolator1D
-        """
-        if self.flux_file is None:
-            return None
-        flux = np.loadtxt(self.flux_file)
-        energies = flux[:,0]/1.e3
-        relative_intensities = flux[:,1]/np.max(flux[:,1])
-        interpolation_function = interp1d(energies, relative_intensities)
-        return interpolation_function
 
 
 class MCAEnergyCalibrationConfig(MCACalibrationConfig):
@@ -891,17 +844,6 @@ class MCATthCalibrationConfig(MCACalibrationConfig):
     quadratic_energy_calibration: Optional[bool] = False
     tth_initial_guess: Optional[
         confloat(gt=0, allow_inf_nan=False)] = Field(None, exclude=True)
-
-    def flux_file_energy_range(self):
-        """Get the energy range in the flux corection file.
-
-        :type: tuple(float, float)
-        """
-        if self.flux_file is None:
-            return None
-        flux = np.loadtxt(self.flux_file)
-        energies = flux[:,0]/1.e3
-        return energies.min(), energies.max()
 
 
 class StrainAnalysisConfig(MCACalibrationConfig):

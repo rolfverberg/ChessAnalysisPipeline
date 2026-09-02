@@ -648,11 +648,10 @@ def select_material_params(
 
 def select_mask_and_hkls(x, y, hkls, ds, tth, preselected_bin_ranges=None,
         preselected_hkl_indices=None, num_hkl_min=1, detector_id=None,
-        ref_map=None, flux_energy_range=None, calibration_bin_ranges=None,
-        label='Reference Data', interactive=False, return_buf=False):
-    """Return a Matplotlib figure to indicate data ranges and HKLs to
-    include for fitting in EDD energy/tth calibration and/or strain
-    analysis.
+        ref_map=None, calibration_bin_ranges=None, label='Reference Data',
+        interactive=False, return_buf=False):
+    """Select and return data ranges and HKL indices to include for
+    fitting in EDD energy/tth calibration and/or strain analysis.
 
     :param x: MCA channel energies.
     :type x: numpy.ndarray
@@ -667,8 +666,9 @@ def select_mask_and_hkls(x, y, hkls, ds, tth, preselected_bin_ranges=None,
     :param tth: (calibrated) 2&theta angle.
     :type tth: float
     :param preselected_bin_ranges: Preselected MCA channel index ranges
-        whose data should be included after applying a mask.
-    :type preselected_bin_ranges: list[list[int]], optional
+        whose data should be included after applying a mask, lower
+        bounds are inclusive, upper bounds not.
+    :type preselected_bin_ranges: list[[int, int]], optional
     :param preselected_hkl_indices: Preselected unique HKL indices to
         fit peaks for in the calibration routine.
     :type preselected_hkl_indices: list[int], optional
@@ -680,9 +680,6 @@ def select_mask_and_hkls(x, y, hkls, ds, tth, preselected_bin_ranges=None,
     :param ref_map: Reference map of MCA intensities to show underneath
         the interactive plot.
     :type ref_map: numpy.ndarray, optional
-    :param flux_energy_range: Energy range in eV in the flux file
-        containing station beam energy in eV versus flux
-    :type flux_energy_range: float, float, optional
     :param calibration_bin_ranges: MCA channel index ranges included
         in the detector calibration.
     :type calibration_bin_ranges: list[[int, int]], optional
@@ -695,10 +692,11 @@ def select_mask_and_hkls(x, y, hkls, ds, tth, preselected_bin_ranges=None,
     :param return_buf: Return an in-memory object as a byte stream
         represention of the Matplotlib figure, defaults to `False`.
     :type return_buf: bool, optional
-    :return: Selected data index ranges to include, the list of HKL
-        indices to include and a byte stream represention of the
-        Matplotlib figure if return_buf is `True` (`None` otherwise).
-    :rtype: list[list[int]], list[int], io.BytesIO or None
+    :return: Selected data index ranges to include (lower bounds are
+        inclusive, upper bounds not), the list of HKL indices to
+        include and a byte stream represention of the Matplotlib
+        figure if return_buf is `True` (`None` otherwise).
+    :rtype: list[[int, int]], list[int], io.BytesIO or None
     """
     # Third party modules
     import matplotlib.lines as mlines
@@ -736,11 +734,10 @@ def select_mask_and_hkls(x, y, hkls, ds, tth, preselected_bin_ranges=None,
 
         :type: numpy.ndarray
         """
-        mask = np.full(x.shape[0], False)
+        mask = np.full(x.size, False)
         for span in spans:
             _min, _max = span.extents
-            mask = np.logical_or(
-                mask, np.logical_and(x >= _min, x <= _max))
+            mask = np.logical_or(mask, np.logical_and(x >= _min, x <= _max))
         return mask
 
     def hkl_locations_in_any_span(hkl_index):
@@ -791,11 +788,6 @@ def select_mask_and_hkls(x, y, hkls, ds, tth, preselected_bin_ranges=None,
                         break
                 if combined_spans_test:
                     break
-        if flux_energy_range is not None:
-            for span in spans:
-                min_ = max(span.extents[0], min_x)
-                max_ = min(span.extents[1], max_x)
-                span.extents = (min_, max_)
         added_hkls = False
         for hkl_index in range(len(hkl_locations)):
             if (hkl_index not in selected_hkl_indices
@@ -865,32 +857,30 @@ def select_mask_and_hkls(x, y, hkls, ds, tth, preselected_bin_ranges=None,
         ref_map = None
 
     # Make preselected_bin_ranges consistent with selected_hkl_indices
+    min_x = x.min()
+    max_x = x.max()
     if preselected_bin_ranges is None:
         preselected_bin_ranges = []
     hkl_locations = [loc for loc in get_peak_locations(ds, tth)
                      if x[0] <= loc <= x[-1]]
     if selected_hkl_indices and not preselected_bin_ranges:
         index_ranges = get_consecutive_int_range(selected_hkl_indices)
-        for index_range in index_ranges:
+        for n, index_range in enumerate(index_ranges):
             i = index_range[0]
             if i:
-                min_ = 0.5*(hkl_locations[i-1] + hkl_locations[i])
+                low = index_nearest_down(
+                    x, 0.5*(hkl_locations[i-1] + hkl_locations[i]))
+                if n:
+                    low = max(preselected_bin_ranges[n-1][1], low)
             else:
-                min_ = 0.5*(min_x + hkl_locations[i])
+                low = 0
             j = index_range[1]
             if j < len(hkl_locations)-1:
-                max_ = 0.5*(hkl_locations[j] + hkl_locations[j+1])
+                upp = index_nearest_up(
+                    x, 0.5*(hkl_locations[j] + hkl_locations[j+1]))
             else:
-                max_ = 0.5*(hkl_locations[j] + max_x)
-            preselected_bin_ranges.append(
-                [index_nearest_up(x, min_), index_nearest_down(x, max_)])
-
-    if flux_energy_range is None:
-        min_x = x.min()
-        max_x = x.max()
-    else:
-        min_x = x[index_nearest_up(x, max(x.min(), flux_energy_range[0]))]
-        max_x = x[index_nearest_down(x, min(x.max(), flux_energy_range[1]))]
+                upp = x.size - 1
+            preselected_bin_ranges.append([low, upp])
 
     # Setup the Matplotlib figure
     title_pos = (0.5, 0.95)
@@ -1050,7 +1040,7 @@ def select_mask_and_hkls(x, y, hkls, ds, tth, preselected_bin_ranges=None,
                                 hkl_locations[hkl_index]
                                 + hkl_locations[hkl_index+1])
                         else:
-                            max_ = 0.5*(hkl_locations[hkl_index] + max_x)
+                            max_ = max_x
                         span_p.extents = (span_p.extents[0], max_)
                     elif n_hkl:
                         span_n = spans[hkl_locations_in_any_span(hkl_index+1)]
@@ -1059,7 +1049,7 @@ def select_mask_and_hkls(x, y, hkls, ds, tth, preselected_bin_ranges=None,
                                 hkl_locations[hkl_index-1]
                                 + hkl_locations[hkl_index])
                         else:
-                            min_ = 0.5*(min_x + hkl_locations[hkl_index])
+                            min_ = min_x
                         span_n.extents = (min_, span_n.extents[1])
                     else:
                         if hkl_index > 0:
@@ -1067,13 +1057,13 @@ def select_mask_and_hkls(x, y, hkls, ds, tth, preselected_bin_ranges=None,
                                 hkl_locations[hkl_index-1]
                                 + hkl_locations[hkl_index])
                         else:
-                            min_ = 0.5*(min_x + hkl_locations[hkl_index])
+                            min_ = min_x
                         if hkl_index < len(hkl_locations)-1:
                             max_ = 0.5*(
                                 hkl_locations[hkl_index]
                                 + hkl_locations[hkl_index+1])
                         else:
-                            max_ = 0.5*(hkl_locations[hkl_index] + max_x)
+                            max_ = max_x
                         add_span(None, xrange_init=(min_, max_))
                     _change_error_text(
                         'Adjusted the selected energy mask to reflect the '
@@ -1167,7 +1157,10 @@ def select_mask_and_hkls(x, y, hkls, ds, tth, preselected_bin_ranges=None,
 
     selected_bin_ranges = [np.searchsorted(x, span.extents).tolist()
                            for span in spans]
-    if not selected_bin_ranges:
+    if selected_bin_ranges:
+        if selected_bin_ranges[-1][1] == x.size-1:
+            selected_bin_ranges[-1][1] = x.size
+    else:
         selected_bin_ranges = None
     if selected_hkl_indices:
         selected_hkl_indices = sorted(selected_hkl_indices)
@@ -1268,7 +1261,7 @@ def get_rolling_sum_spectra(
 
 
 def get_spectra_fits(
-        spectra, energies, peak_locations, detector, fit_type='unconstrained',
+        spectra, energies, peak_locations, detector, mask=None, fit_type='unconstrained',
         **kwargs):
     """Return a dictionary with eleven items for the fit results
     for the map of spectra provided: centers, center errors,
@@ -1283,6 +1276,9 @@ def get_spectra_fits(
     :type peak_locations: list[float]
     :param detector: MCA detector element configuration.
     :type detector: MCAElementStrainAnalysisConfig
+    :ivar mask: Mask to apply to the data during fitting (boolean
+        array, `True` meaning mask in the fit).
+    :param mask: numpy.ndarray, optional
     :param fit_type: Type of fit, defaults to `'unconstrained'`.
     :type fit_type: Literal['uniform', 'unconstrained'], optional
     :returns: Centers, amplitudes, sigmas (and errors for all three
@@ -1304,8 +1300,6 @@ def get_spectra_fits(
     from CHAP.pipeline import PipelineData
     from CHAP.utils.fit import FitProcessor
 
-    num_proc = kwargs.pop('num_proc', 1)
-    max_nfev = kwargs.pop('max_nfev', 64000)
     abs_height_cutoff = detector.abs_height_cutoff
     rel_height_cutoff = detector.rel_height_cutoff
     num_peak = len(peak_locations)
@@ -1338,8 +1332,8 @@ def get_spectra_fits(
         'models': models,
 #        'plot': True,
 #        'print_report': True,
-        'num_proc': num_proc,
-        'max_nfev': max_nfev,
+        'num_proc': kwargs.pop('num_proc', 1),
+        'max_nfev': kwargs.pop('max_nfev', 64000),
         'rel_height_cutoff': rel_height_cutoff,
 #        'method': 'trf',
         'method': 'leastsq',
@@ -1349,13 +1343,16 @@ def get_spectra_fits(
 
     # Perform fit
     # FIX make more generic for fit parameters
-    fit = FitProcessor.run(
-        data=[PipelineData(name='signal', data=spectra),
-              PipelineData(name='coordinates', data=energies)],
-        config=config, **kwargs)
+    data=[PipelineData(name='signal', data=spectra),
+          PipelineData(name='coordinates', data=energies)]
+    if mask is not None:
+        data.append(PipelineData(name='mask', data=mask))
+    fit = FitProcessor.run(data=data, config=config, **kwargs)
     success = fit.success
     if spectra.ndim == 1:
         if success:
+            if fit_type == 'uniform':
+                fit_strain = 1 - fit.best_values['scale_factor']
             if num_peak == 1:
                 fit_centers = [fit.best_values['center']]
                 fit_centers_errors = [fit.best_errors['center']]
@@ -1397,6 +1394,8 @@ def get_spectra_fits(
                         fit.best_errors[
                             f'peak{i+1}_fraction'] for i in range(num_peak)]
         else:
+            if fit_type == 'uniform':
+                fit_strain = 0
             fit_centers = list(peak_locations)
             fit_centers_errors = [0]
             fit_amplitudes = [0]
@@ -1408,6 +1407,9 @@ def get_spectra_fits(
                 fit_fractions = [0]
                 fit_fractions_errors = [0]
     else:
+        if fit_type == 'uniform':
+            fit_strain = 1 - fit.best_values[
+                fit.best_parameters().index('scale_factor')]
         if num_peak == 1:
             fit_centers = [
                 fit.best_values[fit.best_parameters().index('center')]]
@@ -1472,6 +1474,7 @@ def get_spectra_fits(
                             f'peak{i+1}_fraction')]
                     for i in range(num_peak)]
         if not np.asarray(success).all():
+            fit_strain *= success
             for n in range(num_peak):
                 fit_centers[n] = np.where(
                     success, fit_centers[n], peak_locations[n])
@@ -1499,4 +1502,6 @@ def get_spectra_fits(
     if detector.peak_models == 'pvoigt':
         result['fractions'] = fit_fractions
         result['fractions_errors'] = fit_fractions_errors
+    if fit_type == 'uniform':
+        result['fit_strain'] = fit_strain
     return result

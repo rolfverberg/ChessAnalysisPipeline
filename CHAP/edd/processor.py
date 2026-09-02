@@ -71,11 +71,14 @@ class _BaseEddProcessor(Processor):
             # Add the mask for the fluorescence peaks from the
             # energy calibration for certain tth calibrations
             if calibration_method == 'direct_fit_tth_ecc':
-                detector.convert_mask_ranges(
-                    detector._energy_calibration_mask_ranges +
-                    detector.get_mask_ranges())
+                energy_calibration_mask_ranges = \
+                    detector.energy_calibration_mask_ranges
+                if energy_calibration_mask_ranges is not None:
+                    detector.mask_ranges = deepcopy(
+                        energy_calibration_mask_ranges +
+                        detector.get_mask_ranges())
 
-            mask = detector.mca_mask()
+            mask = detector.mask
             low, upp = np.argmax(mask), mask.size - np.argmax(mask[::-1])
             self._energies[index] = energies[low:upp]
             self._masks.append(mask[low:upp])
@@ -98,28 +101,6 @@ class _BaseEddProcessor(Processor):
             self._mean_data[index] *= energy_mask
             self._nxdata_detectors[index].nxsignal.nxdata *= \
                 energy_mask.astype(dtype)
-
-    def _apply_flux_correction(self):
-        """Apply the flux correction."""
-        # Check each detector's include_energy_ranges field against the
-        # flux file, if available.
-        if self.config.flux_file is not None:
-            raise RuntimeError('Flux correction not tested after updates')
-#            flux = np.loadtxt(self.config.flux_file)
-#            flux_file_energies = flux[:,0]/1.e3
-#            flux_e_min = flux_file_energies.min()
-#            flux_e_max = flux_file_energies.max()
-#            for detector in self.detector_config.detectors:
-#                for i, (det_e_min, det_e_max) in enumerate(
-#                        deepcopy(detector.include_energy_ranges)):
-#                    if det_e_min < flux_e_min or det_e_max > flux_e_max:
-#                        energy_range = [float(max(det_e_min, flux_e_min)),
-#                                        float(min(det_e_max, flux_e_max))]
-#                        print(
-#                            f'WARNING: include_energy_ranges[{i}] out of range'
-#                            f' ({detector.include_energy_ranges[i]}): adjusted'
-#                            f' to {energy_range}')
-#                        detector.include_energy_ranges[i] = energy_range
 
     def _get_mask_hkls(self):
         """Get the mask and HKLs used in the current processor."""
@@ -152,11 +133,11 @@ class _BaseEddProcessor(Processor):
             # Interactively adjust the mask and HKLs used in the
             # current processor
             #if isinstance(detector, MCADetectorStrainAnalysis):
-            calibration_bin_ranges = detector.get_calibration_mask_ranges() \
+            calibration_bin_ranges = detector.energy_calibration_mask_ranges \
                 if detector.processor_type == 'strainanalysis' else None
             tth = detector.tth_initial_guess \
                 if detector.tth_calibrated is None else detector.tth_calibrated
-            mask_ranges, hkl_indices, buf = \
+            detector.mask_ranges, detector.hkl_indices, buf = \
                 select_mask_and_hkls(
                     energies, mean_data, hkls, ds, tth,
                     preselected_bin_ranges=detector.get_mask_ranges(),
@@ -167,26 +148,28 @@ class _BaseEddProcessor(Processor):
                     label='Sum of the spectra in the map',
                     interactive=self.interactive,
                     return_buf=self.save_figures)
-            if self.save_figures:
-                self._figures.append((buf, f'{detector.get_id()}_{basename}'))
-            detector.hkl_indices = hkl_indices
-            detector.convert_mask_ranges(mask_ranges)
-            self.logger.debug(
-                f'energy mask_ranges for detector {detector.get_id()}:'
-                f' {detector.energy_mask_ranges}')
+            detector.get_energy_mask_ranges()
             self.logger.debug(
                 f'hkl_indices for detector {detector.get_id()}:'
                 f' {detector.hkl_indices}')
-            if not detector.energy_mask_ranges:
-                raise ValueError(
-                    'No value provided for energy_mask_ranges. Provide '
-                    'them in the tth calibration configuration, or re-run the '
-                    'pipeline with the interactive flag set.')
             if not detector.hkl_indices:
                 raise ValueError(
                     'No value provided for hkl_indices. Provide them in '
                     'the tth calibration configuration, or re-run the '
                     'pipeline with the interactive flag set.')
+            self.logger.debug(
+                f'energy mask_ranges for detector {detector.get_id()}:'
+                f' {detector.energy_mask_ranges}')
+            self.logger.debug(
+                f'mask_ranges for detector {detector.get_id()}:'
+                f' {detector.mask_ranges}')
+            if detector.mask_ranges is None:
+                raise ValueError(
+                    'No value provided for mask_ranges. Provide '
+                    'them in the tth calibration configuration, or re-run the '
+                    'pipeline with the interactive flag set.')
+            if self.save_figures:
+                self._figures.append((buf, f'{detector.get_id()}_{basename}'))
 
     def _setup_detector_data(self, nxobject, **kwargs):
         """Load the raw MCA data from the SpecReader output and compute
@@ -611,7 +594,7 @@ class DiffractionVolumeLengthProcessor(_BaseEddProcessor):
                         if k not in detector.attrs:
                             detector.attrs[k] = np.asarray(v) \
                                 if isinstance(v, list) else v
-                    detector.energy_mask_ranges = None
+                    detector.get_energy_mask_ranges() is None
                     detectors.append(detector)
                 else:
                     skipped_detectors.append(detector.get_id())
@@ -640,9 +623,6 @@ class DiffractionVolumeLengthProcessor(_BaseEddProcessor):
 
         # Load the scanned motor position values
         scanned_vals = self._get_scanned_vals(nxentry)
-
-        # Apply the flux correction
-#        self._apply_flux_correction()
 
         # Apply the energy mask
         self._apply_energy_mask()
@@ -686,7 +666,7 @@ class DiffractionVolumeLengthProcessor(_BaseEddProcessor):
             # Interactively adjust the mask used in the energy
             # calibration
             buf, _, detector.mask_ranges = select_mask_1d(
-                mean_data, preselected_index_ranges=detector.mask_ranges,
+                mean_data, preselected_index_ranges=detector.get_mask_ranges(),
                 title=f'Mask for detector {detector.get_id()}',
                 xlabel='Detector Channel (-)',
                 ylabel='Intensity (counts)',
@@ -1335,9 +1315,6 @@ class MCAEnergyCalibrationProcessor(_BaseEddProcessor):
             nxentry, available_detector_ids=raw_detector_ids,
             max_energy_kev=self.config.max_energy_kev)
 
-        # Apply the flux correction
-        self._apply_flux_correction()
-
         # Apply the energy mask
         self._apply_energy_mask()
 
@@ -1356,6 +1333,7 @@ class MCAEnergyCalibrationProcessor(_BaseEddProcessor):
         # Combine the calibration and detector configuration
         # and move default detector fields to the detector attrs
         for d in self.detector_config.detectors:
+            d.energy_mask_ranges = None
             d.attrs['default_fields'] = {
                 k:v.default for k, v in d.model_fields.items()
                 if (k != 'attrs' and (k not in d.model_fields_set
@@ -1382,7 +1360,7 @@ class MCAEnergyCalibrationProcessor(_BaseEddProcessor):
             # Interactively adjust the mask used in the energy
             # calibration
             buf, _, detector.mask_ranges = select_mask_1d(
-                mean_data, preselected_index_ranges=detector.mask_ranges,
+                mean_data, preselected_index_ranges=detector.get_mask_ranges(),
                 title=f'Mask for detector {detector.get_id()}',
                 xlabel='Detector Channel (-)',
                 ylabel='Intensity (counts)',
@@ -1439,7 +1417,7 @@ class MCAEnergyCalibrationProcessor(_BaseEddProcessor):
                              for energy in peak_energies]
             buf, initial_peak_indices = self._get_initial_peak_positions(
                 mean_data*np.asarray(mask).astype(np.int32), low,
-                detector.mask_ranges, input_indices, max_peak_index, id_,
+                detector.get_mask_ranges(), input_indices, max_peak_index, id_,
                 return_buf=self.save_figures)
             if self.save_figures:
                 self._figures.append(
@@ -1887,13 +1865,10 @@ class MCATthCalibrationProcessor(_BaseEddProcessor):
                 skipped_detectors.append(detector.get_id())
                 detectors.pop(i)
             else:
-                detector.set_energy_calibration_mask_ranges()
+#                detector.energy_calibration_mask_ranges = detector.mask_ranges
+#                detector.mask_ranges = None
                 if detector.tth_initial_guess is None:
                     detector.tth_initial_guess = self.config.tth_initial_guess
-#                if detector.energy_mask_ranges is None:
-#                    raise ValueError('energy_mask_ranges is required for '
-#                                     'all detectors')
-                detector.mask_ranges = None
         if len(skipped_detectors) == 1:
             self.logger.warning(
                 f'Skipping detector {skipped_detectors[0]} '
@@ -1911,9 +1886,6 @@ class MCATthCalibrationProcessor(_BaseEddProcessor):
         # and the mean spectra
         self._setup_detector_data(
             nxentry, available_detector_ids=raw_detector_ids)
-
-        # Apply the flux correction
-        self._apply_flux_correction()
 
         # Apply the energy mask
         self._apply_energy_mask()
@@ -1937,6 +1909,7 @@ class MCATthCalibrationProcessor(_BaseEddProcessor):
         # Combine the calibration and detector configuration
         # and move default detector fields to the detector attrs
         for d, p in zip(self.detector_config.detectors, self._peak_fit_info):
+            d.mask_ranges = None
             d.attrs['default_fields'] = {
                 k:v.default for k, v in d.model_fields.items()
                 if (k != 'attrs' and (k not in d.model_fields_set
@@ -1946,6 +1919,7 @@ class MCATthCalibrationProcessor(_BaseEddProcessor):
             **self.config.model_dump(),
             'detectors': [d.model_dump(exclude_defaults=True)
                           for d in self.detector_config.detectors]}
+
         # Add the fit results to the detector fields
         for i, d in enumerate(self.detector_config.detectors):
             configs['detectors'][i].update(
@@ -1980,13 +1954,6 @@ class MCATthCalibrationProcessor(_BaseEddProcessor):
 
             tth = detector.tth_initial_guess
             bins = low + np.arange(energies.size, dtype=np.int16)
-
-            # Correct raw MCA data for variable flux at different energies
-            flux_correct = \
-                self.config.flux_correction_interpolation_function()
-            if flux_correct is not None:
-                mca_intensity_weights = flux_correct(energies)
-                mean_data = mean_data / mca_intensity_weights
 
             # Get the Bragg peak HKLs, lattice spacings and energies
             hkls, ds, material_names = get_unique_hkls_ds(
@@ -2046,14 +2013,9 @@ class MCATthCalibrationProcessor(_BaseEddProcessor):
                     axs[0,0].text(
                         e_peak, 1, str(hkls[i])[1:-1], ha='right', va='top',
                         rotation=90, transform=axs[0,0].get_xaxis_transform())
-                if flux_correct is None:
-                    axs[0,0].plot(
-                        energies[mask], mean_data[mask], marker='.', c='C2',
-                        ms=3, ls='', label='MCA data')
-                else:
-                    axs[0,0].plot(
-                        energies[mask], mean_data[mask], marker='.', c='C2',
-                        ms=3, ls='', label='Flux-corrected MCA data')
+                axs[0,0].plot(
+                    energies[mask], mean_data[mask], marker='.', c='C2',
+                    ms=3, ls='', label='MCA data')
                 if quadratic_energy_calibration:
                     label = 'Peak fit using calibrated a, b, and c'
                 else:
@@ -3399,8 +3361,7 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
                 nxdetector, hkls_fit, material_names_fit, peak_fit_info)
 
             # Add the strain fields
-            tth_map = detector.get_tth_map((num_points,))
-            det_nxdata.tth.nxdata = tth_map
+            det_nxdata.tth.nxdata = detector.get_tth_map((num_points,))
 
         return nxprocess
 
@@ -3512,7 +3473,77 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
             get_peak_locations,
             get_spectra_fits,
             get_unique_hkls_ds,
+            select_mask_and_hkls,
         )
+
+        def _get_component_strains(
+                centers, nominal_centers, material_names):
+            strains = np.log(nominal_centers / centers)
+            component_strains = {}
+            if isinstance(material_names, (tuple, list, np.ndarray)):
+                for m in set(material_names):
+                    component_strain = strains[(material_names == m)]
+                    component_strains[m] = {
+                        'mean': np.mean(component_strain, axis=0),
+                        'stdev': np.std(component_strain, axis=0),
+#                        'values': component_strain,
+                    }
+                return strains, component_strains
+            component_strains[material_names] = {
+                'mean': np.mean(strains, axis=0),
+                'stdev': np.std(strains, axis=0),
+#                'values': component_strain,
+            }
+            return strains, component_strains
+
+        def _get_use_peaks(energies, mean_data, peak_locations):
+            # Third party modules
+            from scipy.signal import find_peaks as find_peaks_scipy
+
+            if not self.config.find_peak_cutoff:
+                return np.ones((peak_locations.size)).astype(bool)
+
+            # Find initial peak estimates
+            if not self.setup:
+                self.logger.warning(
+                    'Using find_peaks not well defined yet for '
+                    'incremental update')
+
+            peaks = find_peaks_scipy(
+                mean_data, width=5,
+                height=self.config.find_peak_cutoff*mean_data.max())
+            #heights = peaks[1]['peak_heights']
+            widths = peaks[1]['widths']
+            centers = [energies[v] for v in peaks[0]]
+            use_peaks = np.zeros((peak_locations.size)).astype(bool)
+            # FIX Potentially use peak_heights/widths as initial
+            # values in fit?
+            # peak_heights = np.zeros((peak_locations.size))
+            # peak_widths = np.zeros((peak_locations.size))
+            delta = energies[1] - energies[0]
+            #for height, width, center in zip(heights, widths, centers):
+            for _ in range(4):
+                for width, center in zip(widths, centers):
+                    for n, loc in enumerate(peak_locations):
+                        # FIX Hardwired range now,
+                        # use detector.centers_range?
+                        if center-width*delta < loc < center+width*delta:
+                            use_peaks[n] = True
+                            # peak_heights[n] = height
+                            # peak_widths[n] = width*delta
+                            break
+                if any(use_peaks):
+                    break
+                delta *= 2
+            if any(use_peaks):
+                self.logger.debug(
+                    f'Using peaks with centers at {peak_locations[use_peaks]}')
+            else:
+                self.logger.warning(
+                    'No matching peaks with heights above the threshold, '
+                    f'skipping the fit for detector {detector.get_id()}')
+                return np.asarray([]).astype(bool)
+            return use_peaks
 
         # Get and subtract the detector baselines
         self._subtract_baselines()
@@ -3551,85 +3582,77 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
             self.logger.debug(
                 f'Beginning strain analysis for {detector.get_id()}')
 
-            # Get the spectra for this detector
-            intensities = nxdata.nxsignal.nxdata.T[mask].T
-            intensity_norms = intensities.max(axis=intensities.ndim-1)
-
             # Get the unique HKLs and lattice spacings for the strain
             # analysis materials
             hkls, ds, material_names = get_unique_hkls_ds(
                 self.config.materials, tth_max=detector.tth_max,
                 tth_tol=detector.tth_tol)
 
-            # Get the HKLs and lattice spacings that will be used for
-            # fitting
-            hkls_fit = np.asarray([hkls[i] for i in detector.hkl_indices])
-            ds_fit = np.asarray([ds[i] for i in detector.hkl_indices])
-            material_names_fit = np.asarray(
+            # Get the selected HKLs, lattice spacings, material names
+            # and peak locations
+            hkls = np.asarray([hkls[i] for i in detector.hkl_indices])
+            ds = np.asarray([ds[i] for i in detector.hkl_indices])
+            material_names = np.asarray(
                 [material_names[i] for i in detector.hkl_indices])
             peak_locations = get_peak_locations(
-                ds_fit, detector.tth_calibrated)
+                ds, detector.tth_calibrated)
 
-            # Find initial peak estimates
-            if not self.config.find_peak_cutoff:
-                use_peaks = np.ones((peak_locations.size)).astype(bool)
-            else:
-                # Third party modules
-                from scipy.signal import find_peaks as find_peaks_scipy
-
-                if not self.setup:
-                    self.logger.warning(
-                        'Using find_peaks not well defined yet for '
-                        'incremental update')
-
-                peaks = find_peaks_scipy(
-                    mean_data, width=5,
-                    height=self.config.find_peak_cutoff*mean_data.max())
-                #heights = peaks[1]['peak_heights']
-                widths = peaks[1]['widths']
-                centers = [energies[v] for v in peaks[0]]
-                use_peaks = np.zeros((peak_locations.size)).astype(bool)
-                # FIX Potentially use peak_heights/widths as initial
-                # values in fit?
-                # peak_heights = np.zeros((peak_locations.size))
-                # peak_widths = np.zeros((peak_locations.size))
-                delta = energies[1] - energies[0]
-                #for height, width, center in zip(heights, widths, centers):
-                for _ in range(4):
-                    for width, center in zip(widths, centers):
-                        for n, loc in enumerate(peak_locations):
-                            # FIX Hardwired range now,
-                            # use detector.centers_range?
-                            if center-width*delta < loc < center+width*delta:
-                                use_peaks[n] = True
-                                # peak_heights[n] = height
-                                # peak_widths[n] = width*delta
-                                break
-                    if any(use_peaks):
-                        break
-                    delta *= 2
-            if any(use_peaks):
-                self.logger.debug(
-                    f'Using peaks with centers at {peak_locations[use_peaks]}')
-            else:
-                self.logger.warning(
-                    'No matching peaks with heights above the threshold, '
-                    f'skipping the fit for detector {detector.get_id()}')
-                return {}
+            # Get the peaks to use in the fit
+            use_peaks = _get_use_peaks(energies, mean_data, peak_locations)
             self._peak_fit_info.append({
-                'hkls': ["".join(map(str, hkl)) for hkl in hkls_fit],
-                'materials': material_names_fit.tolist(),
+                'hkls': ["".join(map(str, hkl)) for hkl in hkls],
+                'materials': material_names.tolist(),
                 'nominal_peak_centers': peak_locations.tolist(),
                 'peak_models': detector.peak_models,
                 'use_peaks': use_peaks.tolist()})
+            hkls_used = hkls[use_peaks]
+            ds_used = ds[use_peaks]
+            material_names_used = material_names[use_peaks]
+            peak_locations_used = peak_locations[use_peaks]
+
+            # Get the selected HKLs, lattice spacings, material names
+            # and peak locations used in the fit
+
+            # Get the masked energies and spectra for this detector
+            energies_masked = energies[mask]
+            intensities_masked = nxdata.nxsignal.nxdata[:,mask]
+            mean_data_masked = mean_data[mask]
+            map_shape = intensities_masked.shape
+
+            # Get the masked energies and spectra after accounting
+            # for unused peaks
+            if not all(use_peaks):
+                # FIX the fitting works, but adding pointwise breaks
+                # peaks are skipped. Must remap the intensities_masked
+                # and the best fit and residuals to the same shape as
+                # the initial intensities_masked shape
+                mask_ranges_used, _, _ = \
+                    select_mask_and_hkls(
+                        energies_masked, mean_data_masked, hkls,
+                        ds, detector.tth_calibrated,
+                        preselected_hkl_indices=[
+                            i for i, j in enumerate(use_peaks) if j],
+                        detector_id=detector.get_id(),
+                        label='Sum of the spectra in the map',
+                        interactive=False)
+                mask_used = np.zeros((energies_masked.size)).astype(bool)
+                indices = np.arange(energies_masked.size, dtype=np.int32)
+                for min_, max_ in mask_ranges_used:
+                    mask_used = np.logical_or(
+                        mask_used,
+                        np.logical_and(indices >= min_, indices < max_))
+                energies_masked = energies_masked[mask_used]
+                intensities_masked = intensities_masked[:,mask_used]
+                mean_data_masked = mean_data_masked[mask_used]
+            intensity_norms = intensities_masked.max(
+                axis=intensities_masked.ndim-1)
 
             # Perform the fit
             self.logger.info(f'Fitting detector {detector.get_id()} ...')
             fit_results = get_spectra_fits(
-                np.squeeze(intensities), energies[mask],
-                peak_locations[use_peaks], detector,
-                num_proc=self.config.num_proc,
-                max_nfev=self.config.max_nfev, **self.run_config)
+                np.squeeze(intensities_masked), energies_masked,
+                peak_locations_used, detector, max_nfev=self.config.max_nfev,
+                num_proc=self.config.num_proc, **self.run_config)
             if num_points == 1:
                 fit_results = {k: [v] for k, v in fit_results.items()}
                 fields = ['centers', 'amplitudes', 'sigmas']
@@ -3639,52 +3662,86 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
                     fit_results[field] = np.asarray(fit_results[field]).T
                     fit_results[f'{field}_errors'] = np.asarray(
                         fit_results[f'{field}_errors']).T
-
             self.logger.info('... done')
 
-            # Compute the strain analysis results for all map points
-            tth_map = detector.get_tth_map((nxdata.shape[0],))
+            # Get the strains
             centers = np.asarray(fit_results['centers'])
-            nominal_centers = np.asarray(
-                [get_peak_locations(d0, tth_map)
-                 for d0, use_peak in zip(ds_fit, use_peaks) if use_peak])
-            strains = np.log(nominal_centers / centers)
-            component_strains = {}
-            for m in set(material_names_fit):
-                component_strain = strains[(
-                    material_names_fit[use_peaks] == m)]
-                component_strains[m] = {
-                    'mean': np.mean(component_strain, axis=0),
-                    'stdev': np.std(component_strain, axis=0),
-#                    'values': component_strain,
-                }
-            amplitudes_vary = np.asarray(fit_results['amplitudes_vary'])
-            if num_points > 1:
-                amplitudes_vary = np.moveaxis(amplitudes_vary, -1, 0)
+            strains, component_strains = _get_component_strains(
+                centers, peak_locations_used[:,None], material_names_used)
+
+            # Perform a component-wise uniform fit
+            fit_results_uniform = {}
+            for material_name in set(material_names):
+                component_mask_ranges, component_hkl_indices, _ = \
+                    select_mask_and_hkls(
+                        energies_masked, mean_data_masked, hkls_used, ds_used,
+                        detector.tth_calibrated,
+                        preselected_hkl_indices=[
+                            i for i, j in enumerate(
+                                material_names_used == material_name) if j],
+                        detector_id=detector.get_id(),
+                        label='Sum of spectra in the map ({material_name})',
+                        interactive=False)
+                component_mask = np.zeros((energies_masked.size)).astype(bool)
+                indices = np.arange(energies_masked.size, dtype=np.int32)
+                for min_, max_ in component_mask_ranges:
+                    component_mask = np.logical_or(
+                        component_mask,
+                        np.logical_and(indices >= min_, indices < max_))
+                self.logger.info(f'Fitting detector {detector.get_id()} for '
+                                 f'the {material_name} component...')
+                fit_results_uniform[material_name] = get_spectra_fits(
+                    np.squeeze(intensities_masked), energies_masked,
+                    peak_locations_used[component_hkl_indices], detector,
+                    fit_type='uniform', mask=~component_mask,
+                    max_nfev=self.config.max_nfev,
+                    num_proc=self.config.num_proc, **self.run_config)
+                self.logger.info('... done')
+
             # FIX for multiple materials
             if len(component_strains) == 1 and 'eta' in detector.attrs:
                 normal_strains.append(strain)
                 det_angles.append(detector.attrs['eta'])
 
             # Insert the peaks omitted from the fit due to find_peak_cutoff
+            amplitudes_vary = np.asarray(fit_results['amplitudes_vary'])
+            if num_points > 1:
+                amplitudes_vary = np.moveaxis(amplitudes_vary, -1, 0)
             insert_peak_indices = [
                 vv-ii for ii, vv in enumerate(
                     i for i, v in enumerate(use_peaks) if not v)]
             amplitudes_vary = np.insert(
                 amplitudes_vary, insert_peak_indices, [False], axis=-1)
 
+            # Remap the results if peaks where masked
+            best_fits_masked = np.asarray(fit_results['best_fits'])
+            residuals_masked = np.asarray(fit_results['residuals'])
+            if all(use_peaks):
+                best_fits = best_fits_masked
+                residuals = residuals_masked
+            else:
+                best_fits = np.zeros(map_shape)
+                residuals = np.zeros(map_shape)
+                best_fits[:,mask_used] = best_fits_masked
+                residuals[:,mask_used] = residuals_masked
+
             # Store results as full arrays (leading axis = num_points)
             det_id = detector.get_id()
             path = f'{det_id}/data'
             results.update({
-                f'{path}/intensity': intensities,
+                f'{path}/intensity': nxdata.nxsignal.nxdata[:,mask],
                 f'{path}/norm': intensity_norms,
-                f'{path}/best_fit': np.asarray(fit_results['best_fits']),
+                f'{path}/best_fit': best_fits,
                 f'{path}/included_peaks': amplitudes_vary,
-                f'{path}/residual': np.asarray(fit_results['residuals']),
+                f'{path}/residual': residuals,
                 f'{path}/redchi': np.asarray(fit_results['redchis']),
                 f'{path}/success': np.asarray(fit_results['success']),
             })
+            for material_name, result_uniform in fit_results_uniform.items():
+                path = f'{det_id}/{material_name}/uniform'
+                results.update({
+                    f'{path}/strain': result_uniform['fit_strain'],
+                })
             for material_name, component_strain in component_strains.items():
                 path = f'{det_id}/{material_name}/unconstrained'
                 results.update({
@@ -3692,7 +3749,7 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
                     f'{path}/strain_stdev': component_strain['stdev'],
                 })
             for j, (hkl, material_name) in enumerate(zip(
-                    hkls_fit[use_peaks], material_names_fit[use_peaks])):
+                    hkls[use_peaks], material_names[use_peaks])):
                 hkl_name = '_'.join(str(hkl)[1:-1].split(' '))
                 path = f'{det_id}/{material_name}/unconstrained/{hkl_name}'
                 results.update({
@@ -3700,8 +3757,7 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
                         np.asarray(fit_results['amplitudes'][j]),
                     f'{path}/amplitudes/errors':
                         np.asarray(fit_results['amplitudes_errors'][j]),
-                    f'{path}/centers/values':
-                        centers[j],
+                    f'{path}/centers/values': centers[j],
                     f'{path}/centers/errors':
                         np.asarray(fit_results['centers_errors'][j]),
                     f'{path}/sigmas/values':
@@ -3741,7 +3797,7 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
                 # Include placeholder values for unused peaks in results
                 placeholder = np.full(num_points, np.nan)
                 for j, (hkl, material_name) in enumerate(zip(
-                        hkls_fit[~use_peaks], material_names_fit[~use_peaks])):
+                        hkls[~use_peaks], material_names[~use_peaks])):
                     hkl_name = '_'.join(str(hkl)[1:-1].split(' '))
                     fitparams = ('amplitudes', 'centers', 'sigmas', 'strains')
                     if detector.peak_models == 'pvoigt':
@@ -3761,8 +3817,8 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
             if (not self.config.skip_animation
                     and (self.interactive or self.save_figures)):
                 self._create_animation(
-                    nxdata, energies[mask], intensities, intensity_norms,
-                    fit_results['best_fits'], detector.get_id())
+                    nxdata, energies_masked, intensities_masked,
+                    intensity_norms, best_fits_masked, detector.get_id())
 
         # Calculate and add the Rosette strains
         if self.config.calc_rosette_strains:
@@ -3784,10 +3840,12 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
         # Third party modules
         from scipy.optimize import curve_fit
 
+        # FIX make an individual processor? Right now not updated
         def strain_rosette_calc(angle, e_xx, e_yy, e_xy):
             # Calculate the xx strain at an angle, given the xx, yy,
             # and xy strains.
             # Accept scalar or array `angle` (radians).
+            raise ValueError('_fit_strain_rosette needs updating/checking')
             a = np.asarray(angle)
             c = np.cos(a)
             s = np.sin(a)

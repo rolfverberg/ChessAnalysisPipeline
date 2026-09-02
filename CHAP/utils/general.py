@@ -1841,10 +1841,8 @@ def select_mask_1d(
     :param x: x-coordinates of the reference data.
     :type x: array-like, optional
     :param preselected_index_ranges: List of preselected index ranges
-        to mask (bounds are inclusive).
-    :type preselected_index_ranges: list[tuple(int, int)] or
-        list[list[int]] or list[tuple(float, float)] or
-        list[list[float]]), optional
+        to mask, lower bounds are inclusive, upper bounds not.
+    :type preselected_index_ranges: list[[int, int]], optional
     :param preselected_mask: Preselected boolean mask array.
     :type preselected_mask: array-like, optional
     :param title: Title for the displayed figure.
@@ -1872,8 +1870,9 @@ def select_mask_1d(
         return_buf is `True` (`None` otherwise), a boolean mask array,
         and the list of selected index ranges.
     :rtype: tuple[_io.BytesIO, str] or `None`, numpy.ndarray,
-        list[list[int, int]]
+        list[[int, int]]
     """
+    # FIX RV double check all index bounds and in/exclusiveness
     # Third party modules
     # pylint: disable=possibly-used-before-assignment
     if interactive or filename is not None or return_buf:
@@ -2237,6 +2236,7 @@ def select_roi_2d(
     :rtype: tuple[_io.BytesIO, str] or `None`,
         tuple(int, int, int, int)
     """
+    # FIX RV double check all index bounds and in/exclusiveness
     # Third party modules
     # pylint: disable=possibly-used-before-assignment
     if interactive or filename is not None or return_buf:
