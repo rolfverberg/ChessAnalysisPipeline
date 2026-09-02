@@ -37,12 +37,7 @@ from pydantic import (
 
 # Local modules
 from CHAP.processor import Processor
-from CHAP.utils.general import (
-#    is_int,
-    is_index,
-    index_nearest,
-    quick_plot,
-)
+from CHAP.utils.general import quick_plot
 from CHAP.utils.models import FitConfig
 
 FLOAT_MIN = float_info.min

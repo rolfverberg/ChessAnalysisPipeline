@@ -280,11 +280,15 @@ def run(
     pipeline_mmcs = []
     #from time import time
     #t0 = time()
-    for item in deepcopy(pipeline_config):
+    for n, item in enumerate(deepcopy(pipeline_config)):
 
         # Load individual object with given name from its module
         config = run_config.model_dump()
-        if isinstance(item, dict):
+        if isinstance(item, str):
+            name = item
+            item_args = {}
+            pipeline_config[n] = {item: item_args}
+        elif isinstance(item, dict):
             name = list(item.keys())[0]
             item_args = item.get(name)
             if item_args is None:
@@ -320,8 +324,7 @@ def run(
                             f'writing ({outputdir})') from exc
                 config['outputdir'] = outputdir
         else:
-            name = item
-            item_args = {}
+            raise ValueError('Invalid pipeline item ({item})')
         split_name = name.split('.')
         cls_name = split_name[-1]
         mod_name = '.'.join(split_name[:-1])
