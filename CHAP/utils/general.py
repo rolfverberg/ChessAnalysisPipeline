@@ -3164,10 +3164,13 @@ def dictionary_update(target, source, merge_key_paths=None, sort=False):
                 merge_source_only_attr = merge_key_paths.get(
                     'merge_source_only', False)
                 merge_source_only = source.get(merge_source_only_attr, False)
-            elif merge_key_path is not None:
+            elif merge_key_paths is None:
+                # FIX double check: merge of source and targets
+                return source
+            else:
                 raise NotImplementedError(
-                    'Invalid/unimplemeted  parameter type "merge_key_path" '
-                    f'({type(merge_key_path)}) for source and target '
+                    'Invalid/unimplemeted  parameter type "merge_key_paths" '
+                    f'({type(merge_key_paths)}) for source and target '
                     'lists of dictionaries')
             merge_key = l[1] if len(
                 l:=merge_key_path.split('/')) == 2 else None

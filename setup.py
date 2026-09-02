@@ -56,6 +56,7 @@ setuptools.setup(
         'CHAP.tomo',
         'CHAP.utils',
         'CHAP.foxden',
+        'CHAP.xrf',
         'MLaaS',
     ],
     package_dir={
@@ -70,6 +71,7 @@ setuptools.setup(
         'CHAP.tomo': 'CHAP/tomo',
         'CHAP.foxden': 'CHAP/foxden',
         'CHAP.utils': 'CHAP/utils',
+        'CHAP.xrf': 'CHAP/xrf',
         'MLaaS': 'MLaaS',
     },
     package_data={
