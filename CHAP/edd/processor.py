@@ -399,7 +399,8 @@ class _BaseStrainProcessor(_BaseEddProcessor):
                 unique_points.append(point)
                 sum_indices.append([i])
         if not unique_points:
-            return NXdata(NXfield(np.empty((0, data.shape[-1])), 'detector_data'))
+            return NXdata(
+                NXfield(np.empty((0, data.shape[-1])), 'detector_data'))
         unique_points = np.asarray(unique_points).T
         mean_data = np.empty((unique_points.shape[1], data.shape[-1]))
         for i in range(unique_points.shape[1]):
@@ -1326,7 +1327,8 @@ class MCAEnergyCalibrationProcessor(_BaseEddProcessor):
         # Get and subtract the detector baselines
         self._subtract_baselines()
 
-        # Calibrate detector channel energies based on fluorescence peaks
+        # Calibrate detector channel energies based on fluorescence
+        # peaks
         self._calibrate()
 
         # Combine the calibration and detector configuration
@@ -2889,7 +2891,8 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
                 else:
                     self.logger.warning('Skip adding points')
             if self.standalone and self.update:
-                # Return nxprocess structure and values separately for writer
+                # Return nxprocess structure and values separately for
+                # writer
                 values = self._get_values(results)
                 ret = [nxsetup, values]
             else:
@@ -3609,9 +3612,6 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
             material_names_used = material_names[use_peaks]
             peak_locations_used = peak_locations[use_peaks]
 
-            # Get the selected HKLs, lattice spacings, material names
-            # and peak locations used in the fit
-
             # Get the masked energies and spectra for this detector
             energies_masked = energies[mask]
             intensities_masked = nxdata.nxsignal.nxdata[:,mask]
@@ -3621,10 +3621,6 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
             # Get the masked energies and spectra after accounting
             # for unused peaks
             if not all(use_peaks):
-                # FIX the fitting works, but adding pointwise breaks
-                # peaks are skipped. Must remap the intensities_masked
-                # and the best fit and residuals to the same shape as
-                # the initial intensities_masked shape
                 mask_ranges_used, _, _ = \
                     select_mask_and_hkls(
                         energies_masked, mean_data_masked, hkls,
@@ -3702,7 +3698,8 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
                 normal_strains.append(strain)
                 det_angles.append(detector.attrs['eta'])
 
-            # Insert the peaks omitted from the fit due to find_peak_cutoff
+            # Insert the peaks omitted from the fit due to
+            # find_peak_cutoff
             amplitudes_vary = np.asarray(fit_results['amplitudes_vary'])
             if num_points > 1:
                 amplitudes_vary = np.moveaxis(amplitudes_vary, -1, 0)
@@ -3712,7 +3709,8 @@ class StrainAnalysisProcessor(_BaseStrainProcessor):
             amplitudes_vary = np.insert(
                 amplitudes_vary, insert_peak_indices, [False], axis=-1)
 
-            # Remap the results if peaks where masked
+            # Remap the results if peaks where omitted from the fit due
+            # to find_peak_cutoff
             best_fits_masked = np.asarray(fit_results['best_fits'])
             residuals_masked = np.asarray(fit_results['residuals'])
             if all(use_peaks):
